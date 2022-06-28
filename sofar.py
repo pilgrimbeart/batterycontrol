@@ -20,13 +20,14 @@ import serial
 from pprint import pprint
 
 instrument = minimalmodbus.Instrument('/dev/ttyUSB0', 1) # port name, slave address
-instrument.serial.baudrate = 9600   # Baud
+instrument.serial.baudrate = 9600 # Baud
 instrument.serial.bytesize = 8
 instrument.serial.parity   = serial.PARITY_NONE
 instrument.serial.stopbits = 1
 instrument.serial.timeout  = 0.5   # seconds
 
 modbus_registers = [
+    #Name                        addr   signed mul  units twowords
     #["Inverter Freq",           0x20c, False, 0.01, "Hz",False],
     ["Battery Charge Power",    0x20d, True,  10,   "W", False],
     #["Battery Cycles",          0x22c, False, 1,    "",  False],
@@ -46,6 +47,7 @@ modbus_registers = [
     #["Total House Consumption", 0x222, False, 1,    "kWh",True],
 ]
 
+NUM_READS_PER_CALL = 1  # How many registers to read per call. Set equal to number of registers to read all every call
 next_reg_to_read = 0
 cached_values = {}
 
@@ -86,24 +88,29 @@ def set_synthetics(charge):
 
 def read_sofar():
     global cached_values, next_reg_to_read, time_of_last_battery_charge_power_read
+    t1 = time.time()
     if cached_values == {}:
         for r in range(len(modbus_registers)):
             cached_values.update(read_reg(r))
         set_synthetics(0)
     else:
-        v = read_reg(next_reg_to_read)
-        cached_values.update(v)
-        if modbus_registers[next_reg_to_read][0] == "Battery Charge Power": # If we just read battery power, use it to drive synthetic registers 
-            if time_of_last_battery_charge_power_read is not None:
-                val = v["Battery Charge Power"]["value"]
-                elapsed = time.time() - time_of_last_battery_charge_power_read
-                kWh = (val / 1000.0) * elapsed / (60 * 60)
-                set_synthetics(kWh)
-            time_of_last_battery_charge_power_read = time.time()
-        else:
-            set_synthetics(0)
-        next_reg_to_read = (next_reg_to_read + 1) % len(modbus_registers)
+        for i in range(NUM_READS_PER_CALL):
+            v = read_reg(next_reg_to_read)
+            cached_values.update(v)
+            if modbus_registers[next_reg_to_read][0] == "Battery Charge Power": # If we just read battery power, use it to drive synthetic registers 
+                if time_of_last_battery_charge_power_read is not None:
+                    val = v["Battery Charge Power"]["value"]
+                    elapsed = time.time() - time_of_last_battery_charge_power_read
+                    kWh = (val / 1000.0) * elapsed / (60 * 60)
+                    set_synthetics(kWh)
+                time_of_last_battery_charge_power_read = time.time()
+            else:
+                set_synthetics(0)
+            next_reg_to_read = (next_reg_to_read + 1) % len(modbus_registers)
         
+    t2 = time.time()
+    if t2-t1 > 1:
+        print("Read sofar took",t2-t1,"s")
     return cached_values
     
 def prev_values():
