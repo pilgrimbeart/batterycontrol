@@ -24,6 +24,11 @@ READINGS_PER_DAY = int((60*60*24)/READINGS_INTERVAL_S)
 
 MAX_HOUSE_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY   # Sets the top of the chart range
 MAX_PV_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY
+MAX_IMPORT_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY
+
+TITLE_HEIGHT = 20
+LEFT_MARGIN = 20
+STRIPCHART_HEIGHT = 50
 
 BLACK = 0, 0, 0
 WHITE = 255, 255, 255
@@ -43,15 +48,13 @@ SOFAR_COLOUR = WHITE
 HOUSE_COLOUR = RED
 HOUSE_CHEAP_COLOUR = LIGHT_RED
 BATTERY_COLOUR = BLUE
+IMPORT_COLOUR = GREY
 
 BUTTON_FOREGROUND = WHITE
 BUTTON_BACKGROUND = DARK_BLUE
 BUTTON_SELECTED = LIGHT_BLUE
 BUTTON_WIDTH = 150
 BUTTON_HEIGHT = 80
-
-TITLE_HEIGHT = 20
-STRIPCHART_HEIGHT = 50
 
 BUTTONS = [
     { "text" : "weather", "x" : 220, "y" : 280, "state" : True },
@@ -79,14 +82,18 @@ def offset(rect, x,y):
     rect = Rect(rect.left+x, rect.top+y, rect.right-rect.left, rect.bottom-rect.top)
     return rect
 
-def draw_text(text, x,y, fg, bg, align="left"):
+def draw_text(text, x,y, fg, bg, align="left", valign="top", rotate=0):
     x,y = int(x), int(y)
     text = font14.render(text, True, fg, bg)
+    if rotate != 0:
+        text = pygame.transform.rotate(text, rotate)
     tr = text.get_rect()
     if align=="right":
         x -= tr.width
     elif align=="centre":
         x -= int(tr.width/2)
+    if valign=="centre":
+        y -= int(tr.height/2)
     screen.blit(text, offset(tr, x, y))
 
 def draw_button(text, x,y, state):
@@ -118,11 +125,11 @@ def test_hit(pos):
     draw_buttons()
 
 def draw_weather():
-    scalar = SCREEN_WIDTH / float(3 * 8)
+    scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * 8)
     for day in range(3):
         for i in range(8):
             h = int(THREE_HOURLY_UV[day][i] * STRIPCHART_HEIGHT)
-            pygame.draw.rect(screen, UV_COLOUR, Rect( int((day*8 + i)*scalar), int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
+            pygame.draw.rect(screen, UV_COLOUR, Rect( int(LEFT_MARGIN + (day*8 + i)*scalar), int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
 
 clock_flash = False
 
@@ -130,17 +137,25 @@ def draw_time_and_cursor():
     global clock_flash
 
     # Day dividers
-    x = int(SCREEN_WIDTH/3)
+    wid = SCREEN_WIDTH - LEFT_MARGIN
+    x = int(LEFT_MARGIN + wid/3.0)
     pygame.draw.line(screen, WHITE, (x,0), (x, SCREEN_HEIGHT))
-    x = int(2*SCREEN_WIDTH/3)
+    x = int(LEFT_MARGIN + 2*wid/3.0)
     pygame.draw.line(screen, WHITE, (x,0), (x, SCREEN_HEIGHT))
-    xnow = int(SCREEN_WIDTH/3 + SCREEN_WIDTH/3 * (time.time() - utcstuff.start_of_today_epoch_s()) / (60*60*24))
+    xnow = int(LEFT_MARGIN + wid/3.0 + wid/3.0 * (time.time() - utcstuff.start_of_today_epoch_s()) / (60*60*24))
     pygame.draw.line(screen, GREY, (xnow,0), (xnow, SCREEN_HEIGHT)) 
 
-    # Titles
-    draw_text("yesterday", (SCREEN_WIDTH/6.0), 0, WHITE, BACKGROUND, align="centre")
-    draw_text("today", SCREEN_WIDTH/2, 0, WHITE, BACKGROUND, align="centre")
-    draw_text("tomorrow", (5.0*SCREEN_WIDTH/6), 0, WHITE, BACKGROUND, align="centre")
+    # Titles along the top
+    draw_text("yesterday", (LEFT_MARGIN + wid/6.0), 0, WHITE, BACKGROUND, align="centre")
+    draw_text("today", LEFT_MARGIN + wid/2, 0, WHITE, BACKGROUND, align="centre")
+    draw_text("tomorrow", (LEFT_MARGIN + 5.0*wid/6), 0, WHITE, BACKGROUND, align="centre")
+
+    # Titles down left side
+    draw_text("fcast",  0, TITLE_HEIGHT + 0*STRIPCHART_HEIGHT + 10, PV_COLOUR, BACKGROUND, valign="centre", rotate=90)
+    draw_text("PV",     0, TITLE_HEIGHT + 1*STRIPCHART_HEIGHT + 5, PV_COLOUR, BACKGROUND, valign="centre", rotate=90)
+    draw_text("house",  0, TITLE_HEIGHT + 2*STRIPCHART_HEIGHT + 5, HOUSE_COLOUR , BACKGROUND, valign="centre", rotate=90)
+    draw_text("batt",   0, TITLE_HEIGHT + 3*STRIPCHART_HEIGHT + 10, BATTERY_COLOUR, BACKGROUND, valign="centre", rotate=90)
+    draw_text("import", 0, TITLE_HEIGHT + 4*STRIPCHART_HEIGHT + 5, IMPORT_COLOUR, BACKGROUND, valign="centre", rotate=90)
 
     t = datetime.datetime.now()
     if clock_flash:
@@ -161,46 +176,42 @@ def draw_sofar_instants_and_update_odometers():
             diff = 0
         return diff
 
-    y = 240
-    def do_text(title, value, colour=SOFAR_COLOUR):
-        nonlocal y
-        draw_text(title, 0, y, colour, BACKGROUND)
-        draw_text(value, 120, y, colour, BACKGROUND, align="right") 
-        y += 15
-
     # Get data
     prev_values = sofar.prev_values().copy()
     values = sofar.read_sofar()
-
-    # Draw instants
-    do_text("PV",    values["PV Power"]["text"])
-    do_text("House", values["House Consumption"]["text"])
-    do_text("Grid",  values["Grid Power"]["text"])
-    b = values["Battery Charge Power"]["text"]
-    if b[0] == "-":
-        do_text("Discharge", values["Battery Charge Power"]["text"][1:], colour=RED)
-    else:
-        do_text("Charge", values["Battery Charge Power"]["text"], colour=GREEN)
-    do_text("Batt",  values["Battery Charge Level"]["text"])
-
-    # Draw totals
     totals = totals_today()
-    if "pv" in totals:
-        draw_text("%2.1fkWh" % totals["pv"], 350, int(STRIPCHART_HEIGHT*1.5), PV_COLOUR, BACKGROUND)
-    if "house" in totals:
-        draw_text("%2.1fkWh" % totals["house"], 350, int(STRIPCHART_HEIGHT*2.5), HOUSE_COLOUR, BACKGROUND)
+
+    x = int(LEFT_MARGIN + 2*(SCREEN_WIDTH-LEFT_MARGIN)/3 + 70)
+    x2 = x + 80
+    y = int(TITLE_HEIGHT + STRIPCHART_HEIGHT)
+    draw_text(values["PV Power"]["text"], x, y, PV_COLOUR, BACKGROUND, align="right") 
+    draw_text("%2.1fkWh" % totals["pv"], x2, y, PV_COLOUR, BACKGROUND, align="right")
+    y += STRIPCHART_HEIGHT
+    draw_text(values["House Consumption"]["text"], x, y, HOUSE_COLOUR, BACKGROUND, align="right") 
+    draw_text("%2.1fkWh" % totals["house"], x2, y, HOUSE_COLOUR, BACKGROUND, align="right")
+    y += STRIPCHART_HEIGHT
+    v = values["Battery Charge Power"]["text"]
+    draw_text(v, x, y, [GREEN,RED][v[0]=="-"], BACKGROUND, align="right")
+    draw_text(values["Battery Charge Level"]["text"], x2, y, WHITE, BACKGROUND, align="right")
+
+    y += STRIPCHART_HEIGHT
+    draw_text(values["Grid Power"]["text"], x, y, WHITE, BACKGROUND, align="right")
     if "import" in totals:
-        draw_text("%2.1fkWh import" % totals["import"], 350, int(STRIPCHART_HEIGHT*3.5), WHITE, BACKGROUND)
-    if "export" in totals:
-        draw_text("%2.1fkWh export" % totals["export"], 350, int(STRIPCHART_HEIGHT*3.5)+16, WHITE, BACKGROUND)
-    if "batt charge" in totals:
-        draw_text("%2.1fkWh charge" % totals["batt charge"], 350, int(STRIPCHART_HEIGHT*3.5)+32, WHITE, BACKGROUND)
-    if "batt discharge" in totals:
-        draw_text("%2.1fkWh discharge" % totals["batt discharge"], 350, int(STRIPCHART_HEIGHT*3.5)+48, WHITE, BACKGROUND)
+        y += 16
+        draw_text("%2.1fkWh import" % totals["import"], x, y, WHITE, BACKGROUND)
     if "pv savings" in totals:
-        draw_text("£%0.2f pv savings" % totals["pv savings"], 350, int(STRIPCHART_HEIGHT*3.5)+64, WHITE, BACKGROUND)
+        y += 16
+        draw_text("£%0.2f pv savings" % totals["pv savings"], x, y, WHITE, BACKGROUND)
     if "import savings" in totals:
-        draw_text("£%0.2f import savings" % totals["import savings"], 350, int(STRIPCHART_HEIGHT*3.5)+80, WHITE, BACKGROUND)
+        y += 16
+        draw_text("£%0.2f import savings" % totals["import savings"], x, y, WHITE, BACKGROUND)
+    if "import cost at cheap" in totals:
+        y += 16
+        draw_text("£%0.2f import (cheap)" % totals["import cost at cheap"], x, y, WHITE, BACKGROUND)
+    if "import cost at expensive" in totals:
+        y += 16
+        draw_text("£%0.2f import (peak)" % totals["import cost at expensive"], x, y, WHITE, BACKGROUND)
+        
 
     # Update odometers
     ODOMETERS["pv"] += do_delta("Daily Generation")
@@ -223,12 +234,20 @@ def transfer_odometers():
     is_cheap = utcstuff.is_cheap(time.time())
     READINGS[reading_number].update({"cheap_rate" : is_cheap }) 
     if is_cheap:    # TODO: Assumes that the sun never shines during cheap rate
+        import_at_cheap = config.key("unit_cost_cheap") * ODOMETERS["import"]
+        import_at_expensive = 0
         pv_savings = 0
         import_savings = (config.key("unit_cost_expensive") - config.key("unit_cost_cheap")) * ODOMETERS["batt charge"]
     else:
+        import_at_cheap = 0
+        import_at_expensive = config.key("unit_cost_expensive") * ODOMETERS["import"]
         pv_savings = config.key("unit_cost_expensive") * ODOMETERS["batt charge"] # Free!
         import_savings = 0
-    READINGS[reading_number].update({"pv savings" : pv_savings, "import savings" : import_savings})
+    READINGS[reading_number].update({
+        "import cost at cheap" : import_at_cheap,
+        "import cost at expensive" : import_at_expensive,
+        "pv savings" : pv_savings,
+        "import savings" : import_savings})
 
     print("Reading_number",reading_number,"is",READINGS[reading_number])
     filer.write_file("readings", utcstuff.todays_date_iso8601(), READINGS)
@@ -245,11 +264,12 @@ def totals_today():
     return totals
 
 def draw_readings():
+    wid = SCREEN_WIDTH - LEFT_MARGIN
     def draw_seg(data, i, x, y, name, max_value, colour):
-        scalar = (SCREEN_WIDTH / 3) / float(READINGS_PER_DAY)  # Each day occupies a 1/3rd of the screen
+        scalar = (wid / 3) / float(READINGS_PER_DAY)  # Each day occupies a 1/3rd of the screen
         if name not in data[i]:
             return 
-        x = int(x + i * scalar)
+        x = int(LEFT_MARGIN + x + i * scalar)
         val = min(max_value, data[i][name]) 
         height = int((STRIPCHART_HEIGHT * val) / max_value)
         if data[i]["cheap_rate"]:
@@ -260,10 +280,12 @@ def draw_readings():
         draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*1, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
         draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*2, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
         draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*3, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*4, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
-        draw_seg(READINGS, i, SCREEN_WIDTH/3, STRIPCHART_HEIGHT*1, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
-        draw_seg(READINGS, i, SCREEN_WIDTH/3, STRIPCHART_HEIGHT*2, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
-        draw_seg(READINGS, i, SCREEN_WIDTH/3, STRIPCHART_HEIGHT*3, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*1, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*2, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*3, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
 def get_weather_forecast():
     global THREE_HOURLY_UV
@@ -365,11 +387,11 @@ while(1):
 
     if redraw:
         screen.fill(BLACK)
-        draw_buttons()
-        draw_time_and_cursor()
+        # draw_buttons()
         draw_sofar_instants_and_update_odometers()
         draw_weather()
         draw_readings()
+        draw_time_and_cursor()
         pygame.display.flip()
         redraw = False
 
