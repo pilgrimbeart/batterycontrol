@@ -7,15 +7,23 @@
 # We get readings from the Sofar inverter very regularly
 # Some are instantaneous readings (e.g. battery %) and others are odometer.
 # In the case of odometer, we want to difference them and then accumulate into our own bins (bearing in mind that the odometer resets daily)
+# When we are making judgements about how much energy has gone where, there can be some conundrums.
+# For example, given pv generation and house consumption, we are trying to work out how much of that house consumption was supplied directly by PV
+# Scenario 1: Short bursts of PV generation alternating with short bursts of house consumption. In this case the answer should be "0" - the house is not using any PV directly.
+# If we integrate over a short time, we will see the true picture (0). But integrating over a long time would indicate falsely that house is consuming PV
+# Scenario 2: Small but steady PV generation, and small but steady house consumption. In this case the answer should be "small" - the house is using all the small amount of PV directly.
+# If we integrate over a short time, the resolution of our Daily odometer (0.1kWh) will give us many readings which are zero. So integrating reading-by-reading, we may see zero PV and some house, then the next reading might show some PV but zero house. Since self-consumption is min(pv,house) then we conclude wrongly that there is no self-consumption.
+# With daily odometer registers of 0.01kWh, a load of 100W will yield a non-zero value ten times an hour.
+# So either we could use instantaneous Power readings instead of Energy odometers (still not completely accurate, as it means we're point-sampling)
+# Or we could integrate over longer periods.
 
 import sys, os, pygame, time, datetime
 import urllib.request, json, math
 import traceback
 from pygame.locals import *
 import pprint
-import config
 
-import sofar, utcstuff, weather, filer
+import sofar, utcstuff, weather, filer, utils, config
 
 WEATHER_UPDATE_INTERVAL_S = 60 * 30
 SOFAR_UPDATE_INTERVAL_S = 1             # How often we read and display fast-changing numbers like power
@@ -65,6 +73,14 @@ THREE_HOURLY_UV = [[0.0 for i in range(8)] for i in range(3)]    # 3-hourly fore
 READINGS = [{}] * READINGS_PER_DAY   # Today's Sofar readings
 READINGS_YESTERDAY = [{}] * READINGS_PER_DAY
 
+fonts = {}
+
+def get_font(size):
+    global fonts
+    if size not in fonts:
+        fonts[size] = pygame.font.Font('freesansbold.ttf', size)
+    return fonts[size]
+
 def reset_odometers():
     global ODOMETERS
     ODOMETERS = { "pv" : 0, "house" : 0, "import" : 0, "export" : 0, "batt%change" : 0, "batt charge" : 0, "batt discharge" : 0 }
@@ -82,9 +98,10 @@ def offset(rect, x,y):
     rect = Rect(rect.left+x, rect.top+y, rect.right-rect.left, rect.bottom-rect.top)
     return rect
 
-def draw_text(text, x,y, fg, bg, align="left", valign="top", rotate=0):
+def draw_text(text, x,y, fg, bg, font_size=14, align="left", valign="top", rotate=0):
     x,y = int(x), int(y)
-    text = font14.render(text, True, fg, bg)
+    font = get_font(font_size)
+    text = font.render(text, True, fg, bg)
     if rotate != 0:
         text = pygame.transform.rotate(text, rotate)
     tr = text.get_rect()
@@ -185,32 +202,38 @@ def draw_sofar_instants_and_update_odometers():
     x2 = x + 80
     y = int(TITLE_HEIGHT + STRIPCHART_HEIGHT)
     draw_text(values["PV Power"]["text"], x, y, PV_COLOUR, BACKGROUND, align="right") 
-    draw_text("%2.1fkWh" % totals["pv"], x2, y, PV_COLOUR, BACKGROUND, align="right")
+    if "pv" in totals:
+        draw_text("%2.1fkWh" % totals["pv"], x2, y, PV_COLOUR, BACKGROUND, align="right")
     y += STRIPCHART_HEIGHT
     draw_text(values["House Consumption"]["text"], x, y, HOUSE_COLOUR, BACKGROUND, align="right") 
-    draw_text("%2.1fkWh" % totals["house"], x2, y, HOUSE_COLOUR, BACKGROUND, align="right")
+    if "house" in totals:
+        draw_text("%2.1fkWh" % totals["house"], x2, y, HOUSE_COLOUR, BACKGROUND, align="right")
     y += STRIPCHART_HEIGHT
     v = values["Battery Charge Power"]["text"]
     draw_text(v, x, y, [GREEN,RED][v[0]=="-"], BACKGROUND, align="right")
-    draw_text(values["Battery Charge Level"]["text"], x2, y, WHITE, BACKGROUND, align="right")
-
+    draw_text(values["Battery Charge Level"]["text"], x2, y, BATTERY_COLOUR, BACKGROUND, align="right")
     y += STRIPCHART_HEIGHT
     draw_text(values["Grid Power"]["text"], x, y, WHITE, BACKGROUND, align="right")
-    if "import" in totals:
-        y += 16
-        draw_text("%2.1fkWh import" % totals["import"], x, y, WHITE, BACKGROUND)
+
+    x = 330
+    y += 30
+    draw_text("SAVINGS", x,y,WHITE,BACKGROUND, font_size=10)
+    if "house pv" in totals:
+        y += 10
+        draw_text("£%0.2f pv direct" % (totals["house pv"] * config.key("unit_cost_expensive")), x, y, WHITE, BACKGROUND, font_size=10)
     if "pv savings" in totals:
-        y += 16
-        draw_text("£%0.2f pv savings" % totals["pv savings"], x, y, WHITE, BACKGROUND)
+        y += 10
+        draw_text("£%0.2f pv shift" % totals["pv savings"], x, y, WHITE, BACKGROUND, font_size=10)
     if "import savings" in totals:
-        y += 16
-        draw_text("£%0.2f import savings" % totals["import savings"], x, y, WHITE, BACKGROUND)
+        y += 10
+        draw_text("£%0.2f import shift" % totals["import savings"], x, y, WHITE, BACKGROUND, font_size=10)
+
     if "import cost at cheap" in totals:
-        y += 16
-        draw_text("£%0.2f import (cheap)" % totals["import cost at cheap"], x, y, WHITE, BACKGROUND)
+        y += 14
+        draw_text("£%0.2f import (cheap)" % totals["import cost at cheap"], x, y, WHITE, BACKGROUND, font_size=10)
     if "import cost at expensive" in totals:
-        y += 16
-        draw_text("£%0.2f import (peak)" % totals["import cost at expensive"], x, y, WHITE, BACKGROUND)
+        y += 10
+        draw_text("£%0.2f import (peak)" % totals["import cost at expensive"], x, y, WHITE, BACKGROUND, font_size=10)
         
 
     # Update odometers
@@ -230,6 +253,8 @@ def transfer_odometers():
     READINGS[reading_number] = ODOMETERS.copy()
     READINGS[reading_number].update({"battery %" : sofar.prev_values()["Battery Charge Level"]["value"]})   # Instantaneous value at the end of the period, not odometer reading 
     READINGS[reading_number].update({"reading_number" : reading_number, "end" : int(time.time()) })
+    pv, house = READINGS[reading_number]["pv"], READINGS[reading_number]["house"]
+    READINGS[reading_number].update({"house pv" :  min(pv,house) })
 
     is_cheap = utcstuff.is_cheap(time.time())
     READINGS[reading_number].update({"cheap_rate" : is_cheap }) 
@@ -295,6 +320,7 @@ def get_weather_forecast():
     filer.write_file("weather", todays_date, THREE_HOURLY_UV[1])
     filer.write_file("weather", tomorrows_date, THREE_HOURLY_UV[2])
 
+utils.kill_other_instances()
 os.environ["DISPLAY"] = ":0"	# This makes it work even when we run via ssh
 pygame.display.init()
 pygame.init()
@@ -303,11 +329,8 @@ SCREEN_WIDTH, SCREEN_HEIGHT = screen.get_size()
 # pygame.mouse.set_visible(False)   # Seems to stop touchscreen from working too!
 pygame.mouse.set_pos(SCREEN_WIDTH, SCREEN_HEIGHT)
 
-font24 = pygame.font.Font('freesansbold.ttf', 24)
-font14 = pygame.font.Font('freesansbold.ttf', 14)
-
 screen.fill(BLACK)
-draw_text("Starting...",SCREEN_WIDTH/2,SCREEN_HEIGHT/2,WHITE,BLACK, align="centre")
+draw_text("Starting...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, WHITE, BLACK, align="centre")
 pygame.display.flip()
 
 reset_odometers()
