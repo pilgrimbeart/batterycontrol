@@ -13,7 +13,7 @@ def kill_other_instances():
                 if my_process_name in cmd[1]:
                     if not p.pid == my_pid:
                         print("Stopping existing process",cmd)
-                        p.terminate()
+                        p.kill()
                         time.sleep(1)   # Seems like a good idea
 
 if __name__ == "__main__":

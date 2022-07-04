@@ -24,6 +24,11 @@ def tomorrows_date_iso8601():
     x = x + datetime.timedelta(days=1)
     return x.isoformat()[0:10]
 
+def date_days_relative_to_today_iso8601(days):
+    x = datetime.datetime.utcnow()
+    x = x + datetime.timedelta(days=days)
+    return x.isoformat()[0:10]
+
 def hhmm_dst_epoch(s):
     """Takes e.g. '12:30'"""
     hh = int(s[0:2])
