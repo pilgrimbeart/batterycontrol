@@ -1,6 +1,7 @@
 import os, sys, json
 import datetime, time
-import urllib
+import urllib.request
+import math
 import traceback
 
 import utcstuff
@@ -9,6 +10,40 @@ import config
 MET_OFFICE_SITELIST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/sitelist?res=3hourly"
 MET_OFFICE_FORECAST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/"
 MAX_UV_REPORT = 9
+
+MET_CODES = {
+    0: { "desc" : "Clear night", "icon": "empty" },
+    1: { "desc" : "Sunny day", "icon" : "sun" },
+    2: { "desc" : "Partly cloudy (night)", "icon" : "light cloud" },
+    3: { "desc" : "Partly cloudy (day)", "icon" : "light cloud" },
+    4: { "desc" : "Not used", "icon" : "" },
+    5: { "desc" : "Mist", "icon" : "light cloud" },
+    6: { "desc" : "Fog", "icon" : "cloud" },
+    7: { "desc" : "Cloudy", "icon" : "cloud" },
+    8: { "desc" : "Overcast", "icon" : "cloud" },
+    9: { "desc" : "Light rain shower (night)", "icon" : "light rain" },
+    10: { "desc" : "Light rain shower (day)", "icon" : "light rain" },
+    11: { "desc" : "Drizzle", "icon" : "light rain" },
+    12: { "desc" : "Light rain", "icon" : "light rain" },
+    13: { "desc" : "Heavy rain shower (night)", "icon" : "rain" },
+    14: { "desc" : "Heavy rain shower (day)", "icon" : "rain" },
+    15: { "desc" : "Heavy rain", "icon" : "rain" },
+    16: { "desc" : "Sleet shower (night)", "icon" : "light rain" },
+    17: { "desc" : "Sleet shower (day)", "icon" : "light rain" },
+    18: { "desc" : "Sleet", "icon" : "rain" },
+    19: { "desc" : "Hail shower (night)", "icon" : "light rain" },
+    20: { "desc" : "Hail shower (day)", "icon" : "light rain" },
+    21: { "desc" : "Hail", "icon" : "rain" },
+    22: { "desc" : "Light snow shower (night)", "icon" : "light rain" },
+    23: { "desc" : "Light snow shower (day)", "icon" : "light rain" },
+    24: { "desc" : "Light snow", "icon" : "light rain" },
+    25: { "desc" : "Heavy snow shower (night)", "icon" : "rain" },
+    26: { "desc" : "Heavy snow shower (day)", "icon" : "rain" },
+    27: { "desc" : "Heavy snow", "icon" : "rain" },
+    28: { "desc" : "Thunder shower (night)", "icon" : "rain" },
+    29: { "desc" : "Thunder shower (day)", "icon" : "rain" },
+    30: { "desc" : "Thunder", "icon" : "rain" }
+    }
 
 def _read_metoffice(url):
     with urllib.request.urlopen(url + "&key=" + config.key("met_office")) as url:
@@ -46,6 +81,7 @@ def choose_weather_station():
 
 def get_weather():
     three_hourly_uv = [0] * 16
+    raw = [{}] * 16
 
     start_of_today = utcstuff.start_of_today_epoch_s()
     
@@ -63,11 +99,15 @@ def get_weather():
                 three_hours = int(three_hours)
                 if (three_hours >= 0) and (three_hours < len(three_hourly_uv)):
                     three_hourly_uv[int(three_hours)] = uv
+                    raw[int(three_hours)] = r
     except Exception:
         print("Problem decoding data from met office")
         print(data)
         traceback.print_exc(file=sys.stdout)
         print("So weather forecast will default to no sun")
 
-    return three_hourly_uv
+    return (three_hourly_uv, raw)
 
+if __name__ == "__main__":
+    choose_weather_station()
+    print(get_weather())

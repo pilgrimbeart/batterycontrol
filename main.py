@@ -23,7 +23,7 @@ import traceback
 from pygame.locals import *
 import pprint
 
-import sofar, utcstuff, weather, filer, utils, config
+import sofar, utcstuff, weather, filer, utils, config, icons
 
 WEATHER_UPDATE_INTERVAL_S = 60 * 30
 SOFAR_UPDATE_INTERVAL_S = 1             # How often we read and display fast-changing numbers like power
@@ -41,6 +41,8 @@ STRIPCHART_HEIGHT = 50
 BLACK = 0, 0, 0
 WHITE = 255, 255, 255
 GREY = 128, 128, 128
+LIGHT_GREY = 192, 192, 192
+DARK_GREY = 64, 64, 64
 BLUE = 0,0,255
 DARK_BLUE = 64,64,255
 LIGHT_BLUE = 192,192,255
@@ -61,8 +63,6 @@ IMPORT_COLOUR = GREY
 BUTTON_FOREGROUND = WHITE
 BUTTON_BACKGROUND = DARK_BLUE
 BUTTON_SELECTED = LIGHT_BLUE
-BUTTON_WIDTH = 150
-BUTTON_HEIGHT = 50
 
 BUTTONS = {}
 
@@ -75,7 +75,8 @@ fonts = {}
 def create_buttons():
     global BUTTONS
     BUTTONS = {
-        "mode" : { "text" : "live", "x" : 0, "y" : SCREEN_HEIGHT-BUTTON_HEIGHT, "state" : True, "handler" : mode_button_handler }
+        "mode" : { "text" : "live", "x" : LEFT_MARGIN, "y" : SCREEN_HEIGHT-STRIPCHART_HEIGHT, "width" : int((SCREEN_WIDTH-LEFT_MARGIN)/3), "height" : STRIPCHART_HEIGHT, "state" : True, "click_handler" : mode_button_click_handler },
+        "chargelevel": { "text" : "level", "x": LEFT_MARGIN+(SCREEN_WIDTH-LEFT_MARGIN)/3, "y" : SCREEN_HEIGHT-STRIPCHART_HEIGHT, "width" : int((SCREEN_WIDTH-LEFT_MARGIN)/3), "height": STRIPCHART_HEIGHT, "state" : False, "click_handler" : chargelevel_click_handler }
     }
 
 def get_font(size):
@@ -116,19 +117,21 @@ def draw_text(text, x,y, fg, bg, font_size=14, align="left", valign="top", rotat
         y -= int(tr.height/2)
     screen.blit(text, offset(tr, x, y), special_flags = pygame.BLEND_RGBA_ADD)
 
-def draw_button(text, x,y, state):
-    if state:
+def draw_button(b):
+    if b["state"]:
         button_colour = BUTTON_BACKGROUND
     else:
         button_colour = BUTTON_SELECTED
-    but_rect = Rect(x,y, BUTTON_WIDTH,BUTTON_HEIGHT)
+    x,y = b["x"], b["y"]
+    width, height = b["width"], b["height"]
+    but_rect = Rect(int(x),int(y), int(width),int(height))
     pygame.draw.rect(screen, button_colour, but_rect)
-    draw_text(text, x+BUTTON_WIDTH/2, y+BUTTON_HEIGHT/2, BUTTON_FOREGROUND, BACKGROUND, font_size=24, align="centre", valign="centre")
+    draw_text(b["text"], x+width/2, y+height/2, BUTTON_FOREGROUND, BACKGROUND, font_size=24, align="centre", valign="centre")
     return but_rect
 
 def draw_buttons():
     for name, b in BUTTONS.items():
-        b["rects"] = draw_button(b["text"], b["x"], b["y"], b["state"])
+        b["rects"] = draw_button(b)
 
 def test_hit(pos):
     for name, b in BUTTONS.items():
@@ -136,16 +139,19 @@ def test_hit(pos):
             if b["rects"].collidepoint(pos[0], pos[1]):
                 print("Pressed",b["text"])
                 b["state"] = True
-                b["handler"](b)
+                b["click_handler"](b)
             else:  
                 b["state"] = False
     draw_buttons()
 
-def mode_button_handler(b):
+def mode_button_click_handler(b):
     if b["text"] == "live":
-        b["text"] = "historic"
+        b["text"] = "month"
     else:
         b["text"] = "live"
+
+def chargelevel_click_handler(b):
+    pass
 
 def draw_weather():
     scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * 8)
@@ -153,6 +159,8 @@ def draw_weather():
         for i in range(8):
             h = int(THREE_HOURLY_UV[day][i] * STRIPCHART_HEIGHT)
             pygame.draw.rect(screen, UV_COLOUR, Rect( int(LEFT_MARGIN + (day*8 + i)*scalar), int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
+
+    icons.draw_image(screen, "sun", 16, 16)
 
 clock_flash = False
 
@@ -252,11 +260,11 @@ def draw_instants():
 
     draw_text("IMPORT COSTS", x, y, WHITE, BACKGROUND, font_size=10)
     y += 10
-    if "import cost at cheap" in totals:
-        draw_text("£%0.2f cheap" % totals["import cost at cheap"], x, y, WHITE, BACKGROUND, font_size=10)
-        y += 10
     if "import cost at expensive" in totals:
         draw_text("£%0.2f peak" % totals["import cost at expensive"], x, y, WHITE, BACKGROUND, font_size=10)
+        y += 10
+    if "import cost at cheap" in totals:
+        draw_text("£%0.2f cheap" % totals["import cost at cheap"], x, y, WHITE, BACKGROUND, font_size=10)
         y += 10
         
 def battery_stats(readings):
@@ -297,22 +305,46 @@ def battery_stats(readings):
 
     return stats
 
+def draw_stack(x, width, vals, cols):
+    y = SCREEN_HEIGHT
+    for value, colour in zip(vals,cols):
+        height = value * 20
+        pygame.draw.rect(screen, colour, Rect(int(x), int(y-height), int(width), int(height)+1))    # Add 1 to height to ensure no gap between bars
+        y -= height
+
+def make_list_or_zeroes(the_set, the_keys):
+    """Make a list by looking-up all the keys, or use zero if the key doesn't exist"""
+    L = []
+    for k in the_keys:
+        if k in the_set:
+            L.append(the_set[k])
+        else:
+            L.append(0)
+    return L
+
 def draw_historic():
     DAYS = 30
     scalar = (SCREEN_WIDTH - LEFT_MARGIN) / DAYS
     for d in range(DAYS):
-        x = int(LEFT_MARGIN + d * scalar)
-        pygame.draw.line(screen, WHITE, (x,0), (x, SCREEN_HEIGHT))
-
         date = utcstuff.date_days_relative_to_today_iso8601(-DAYS+d)
+        x = int(LEFT_MARGIN + d * scalar)
         if filer.file_exists("readings", date):
             readings = filer.read_file("readings", date)
             totals = totals_for_day(readings)
-            height = totals["house"]
-            pygame.draw.rect(screen, RED, Rect(x,int(STRIPCHART_HEIGHT-height),int(scalar),height))
+            values = make_list_or_zeroes(totals, ["import cost at expensive", "import cost at cheap", "import savings", "pv savings", "house pv"])
+            values = values[0:4] + [values[4] * config.key("unit_cost_expensive")]    # House PV kWh -> £
+            draw_stack(LEFT_MARGIN + d*scalar, scalar,
+                values,
+                [GREY, LIGHT_GREY, BLUE, WHITE, YELLOW])
 
-            stats = battery_stats(readings)
-            print(stats)
+        if filer.file_exists("weather", date):
+            weather = filer.read_file("weather", date)  # Includes 8 3h UV readings
+            height = sum(weather["uv"]) * 20
+            pygame.draw.rect(screen, UV_COLOUR, Rect(x,int(STRIPCHART_HEIGHT-height),int(scalar)+1,height))
+            
+        pygame.draw.line(screen, DARK_GREY, (x,0), (x, SCREEN_HEIGHT))
+
+            
 
 def transfer_odometers():
     global READINGS
@@ -382,11 +414,11 @@ def draw_readings():
 
 def get_weather_forecast():
     global THREE_HOURLY_UV
-    today_and_tomorrow = weather.get_weather()
-    THREE_HOURLY_UV[1] = today_and_tomorrow[0:8]
-    THREE_HOURLY_UV[2] = today_and_tomorrow[8:16]
-    filer.write_file("weather", utcstuff.todays_date_iso8601(), THREE_HOURLY_UV[1])
-    filer.write_file("weather", utcstuff.tomorrows_date_iso8601(), THREE_HOURLY_UV[2])
+    (today_and_tomorrow_uv, raw) = weather.get_weather()
+    THREE_HOURLY_UV[1] = today_and_tomorrow_uv[0:8]
+    THREE_HOURLY_UV[2] = today_and_tomorrow_uv[8:16]
+    filer.write_file("weather", utcstuff.todays_date_iso8601(),     { "uv" : THREE_HOURLY_UV[1], "raw" : raw[0:8] } )
+    filer.write_file("weather", utcstuff.tomorrows_date_iso8601(),  { "uv" : THREE_HOURLY_UV[2], "raw" : raw[8:16] } ) 
 
 def status_screen(s):
     print(s)
@@ -406,6 +438,8 @@ pygame.mouse.set_pos(SCREEN_WIDTH, SCREEN_HEIGHT)
 status_screen("starting...")
 
 reset_odometers()
+
+icons.load_images()
 
 create_buttons()
 
@@ -435,12 +469,14 @@ else:
     print("No readings file yet for today") 
 
 if filer.file_exists("weather", yesterdays_date):
-    THREE_HOURLY_UV[0] = filer.read_file("weather", yesterdays_date) # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
+    THREE_HOURLY_UV[0] = filer.read_file("weather", yesterdays_date)["uv"] # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
 
 if filer.file_exists("weather", todays_date) and filer.file_exists("weather", tomorrows_date):
     print("Loading existing weather forecast")
-    THREE_HOURLY_UV[1] = filer.read_file("weather", todays_date)
-    THREE_HOURLY_UV[2] = filer.read_file("weather", tomorrows_date)
+    data1 = filer.read_file("weather", todays_date)
+    data2 = filer.read_file("weather", tomorrows_date)
+    THREE_HOURLY_UV[1] = data1["uv"]
+    THREE_HOURLY_UV[2] = data2["uv"]
 else:
     print("No saved weather forecast so getting a fresh forecast")
     get_weather_forecast()
