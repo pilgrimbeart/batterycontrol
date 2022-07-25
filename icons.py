@@ -3,13 +3,17 @@ import glob
 import os
 
 DIRECTORY = "images/"
-ICON_SIZE = 24
+ICON_SIZE = 16
 IMAGES = {}
 
 os.chdir(os.path.dirname(__file__)) # Change directory to whereever this file is (e.g. if we're run from init script)
 
 def draw_image(surface, imagename, x, y):
-    surface.blit(IMAGES[imagename+".png"], (x, y))
+    i = imagename + ".png"
+    if i not in IMAGES:
+        print("No such icon",i)
+    else:
+        surface.blit(IMAGES[imagename+".png"], (x, y))
 
 def load_images():
     global IMAGES

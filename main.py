@@ -34,6 +34,8 @@ MAX_HOUSE_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY   # Sets the top 
 MAX_PV_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY
 MAX_IMPORT_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY
 
+MAX_UV = 9
+
 TITLE_HEIGHT = 20
 LEFT_MARGIN = 20
 STRIPCHART_HEIGHT = 50
@@ -66,7 +68,7 @@ BUTTON_SELECTED = LIGHT_BLUE
 
 BUTTONS = {}
 
-THREE_HOURLY_UV = [[0.0 for i in range(8)] for i in range(3)]    # 3-hourly forecasts for yesterday[0], today[1] and tomorrow[2] (normalised to 1.0)
+THREE_HOURLY_WEATHER = [{}, {}, {}]   # 3-hourly forecasts for yesterday[0], today[1] and tomorrow[2] (normalised to 1.0)
 READINGS = [{}] * READINGS_PER_DAY   # Today's Sofar readings
 READINGS_YESTERDAY = [{}] * READINGS_PER_DAY
 
@@ -156,11 +158,18 @@ def chargelevel_click_handler(b):
 def draw_weather():
     scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * 8)
     for day in range(3):
-        for i in range(8):
-            h = int(THREE_HOURLY_UV[day][i] * STRIPCHART_HEIGHT)
-            pygame.draw.rect(screen, UV_COLOUR, Rect( int(LEFT_MARGIN + (day*8 + i)*scalar), int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
+        if len(THREE_HOURLY_WEATHER[day]) > 0:
+            for i in range(8):
+                w = THREE_HOURLY_WEATHER[day][i]
+                h = (int(w["U"]) / float(MAX_UV)) * STRIPCHART_HEIGHT
+                x = int(LEFT_MARGIN + (day*8 + i) * scalar)
+                pygame.draw.rect(screen, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
 
-    icons.draw_image(screen, "sun", 16, 16)
+                icon = weather.MET_CODES[int(w["W"])]["icon"]
+                if icon is not None:
+                    icons.draw_image(screen, icon, x, 16)
+
+                draw_text(w["T"], x, STRIPCHART_HEIGHT, WHITE, BLACK, font_size=10)
 
 clock_flash = False
 
@@ -322,6 +331,13 @@ def make_list_or_zeroes(the_set, the_keys):
             L.append(0)
     return L
 
+def sum_by_key(list_of_sets, the_key):
+    total = 0.0
+    for s in list_of_sets:
+        if the_key in s:
+            total += float(s[the_key])
+    return total
+
 def draw_historic():
     DAYS = 30
     scalar = (SCREEN_WIDTH - LEFT_MARGIN) / DAYS
@@ -338,13 +354,11 @@ def draw_historic():
                 [GREY, LIGHT_GREY, BLUE, WHITE, YELLOW])
 
         if filer.file_exists("weather", date):
-            weather = filer.read_file("weather", date)  # Includes 8 3h UV readings
-            height = sum(weather["uv"]) * 20
+            weather = filer.read_file("weather", date)["raw"]
+            height = int(sum_by_key(weather,"U") * 3)
             pygame.draw.rect(screen, UV_COLOUR, Rect(x,int(STRIPCHART_HEIGHT-height),int(scalar)+1,height))
             
         pygame.draw.line(screen, DARK_GREY, (x,0), (x, SCREEN_HEIGHT))
-
-            
 
 def transfer_odometers():
     global READINGS
@@ -413,12 +427,12 @@ def draw_readings():
         draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
 def get_weather_forecast():
-    global THREE_HOURLY_UV
-    (today_and_tomorrow_uv, raw) = weather.get_weather()
-    THREE_HOURLY_UV[1] = today_and_tomorrow_uv[0:8]
-    THREE_HOURLY_UV[2] = today_and_tomorrow_uv[8:16]
-    filer.write_file("weather", utcstuff.todays_date_iso8601(),     { "uv" : THREE_HOURLY_UV[1], "raw" : raw[0:8] } )
-    filer.write_file("weather", utcstuff.tomorrows_date_iso8601(),  { "uv" : THREE_HOURLY_UV[2], "raw" : raw[8:16] } ) 
+    global THREE_HOURLY_WEATHER
+    raw = weather.get_weather()
+    THREE_HOURLY_WEATHER[1] = raw[0:8]
+    THREE_HOURLY_WEATHER[2] = raw[8:16]
+    filer.write_file("weather", utcstuff.todays_date_iso8601(),     { "raw" : raw[0:8] } )
+    filer.write_file("weather", utcstuff.tomorrows_date_iso8601(),  { "raw" : raw[8:16] } ) 
 
 def status_screen(s):
     print(s)
@@ -469,14 +483,15 @@ else:
     print("No readings file yet for today") 
 
 if filer.file_exists("weather", yesterdays_date):
-    THREE_HOURLY_UV[0] = filer.read_file("weather", yesterdays_date)["uv"] # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
+    THREE_HOURLY_WEATHER[0] = filer.read_file("weather", yesterdays_date)["raw"] # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
+    print("Loaded yesterday's weather", THREE_HOURLY_WEATHER[0])
 
 if filer.file_exists("weather", todays_date) and filer.file_exists("weather", tomorrows_date):
     print("Loading existing weather forecast")
     data1 = filer.read_file("weather", todays_date)
     data2 = filer.read_file("weather", tomorrows_date)
-    THREE_HOURLY_UV[1] = data1["uv"]
-    THREE_HOURLY_UV[2] = data2["uv"]
+    THREE_HOURLY_WEATHER[1] = data1["raw"]
+    THREE_HOURLY_WEATHER[2] = data2["raw"]
 else:
     print("No saved weather forecast so getting a fresh forecast")
     get_weather_forecast()
@@ -495,10 +510,12 @@ while(1):
         print("New UTC day", current_utc_date)
         READINGS_YESTERDAY = READINGS.copy()
         READINGS = [{}] * READINGS_PER_DAY
-        THREE_HOURLY_UV[0] = THREE_HOURLY_UV[1].copy()
-        THREE_HOURLY_UV[1] = THREE_HOURLY_UV[2].copy()
-        THREE_HOURLY_UV[2] = [0.0 for i in range(8)]
+        THREE_HOURLY_WEATHER[0] = THREE_HOURLY_WEATHER[1].copy()
+        THREE_HOURLY_WEATHER[1] = THREE_HOURLY_WEATHER[2].copy()
+        THREE_HOURLY_WEATHER[2] = {}
+        print("After shuffle, THW=",THREE_HOURLY_WEATHER)
         get_weather_forecast()
+        print("After get_weather, THW=",THREE_HOURLY_WEATHER)
         redraw = True
 
     for event in pygame.event.get():

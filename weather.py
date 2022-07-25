@@ -12,11 +12,11 @@ MET_OFFICE_FORECAST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxf
 MAX_UV_REPORT = 9
 
 MET_CODES = {
-    0: { "desc" : "Clear night", "icon": "empty" },
+    0: { "desc" : "Clear night", "icon": None },
     1: { "desc" : "Sunny day", "icon" : "sun" },
     2: { "desc" : "Partly cloudy (night)", "icon" : "light cloud" },
     3: { "desc" : "Partly cloudy (day)", "icon" : "light cloud" },
-    4: { "desc" : "Not used", "icon" : "" },
+    4: { "desc" : "Not used", "icon" : None },
     5: { "desc" : "Mist", "icon" : "light cloud" },
     6: { "desc" : "Fog", "icon" : "cloud" },
     7: { "desc" : "Cloudy", "icon" : "cloud" },
@@ -80,7 +80,6 @@ def choose_weather_station():
     print("Closest Met Office forecast site to",config.key("latitude"),",",config.key("longitude"),"is", WEATHER_NAME, WEATHER_ID)
 
 def get_weather():
-    three_hourly_uv = [0] * 16
     raw = [{}] * 16
 
     start_of_today = utcstuff.start_of_today_epoch_s()
@@ -97,16 +96,15 @@ def get_weather():
                 uv = min(float(r["U"]) / MAX_UV_REPORT, 1.0)
                 three_hours = (obs_time - start_of_today) / (60*60*3)   
                 three_hours = int(three_hours)
-                if (three_hours >= 0) and (three_hours < len(three_hourly_uv)):
-                    three_hourly_uv[int(three_hours)] = uv
+                if (three_hours >= 0) and (three_hours < len(raw)):
                     raw[int(three_hours)] = r
     except Exception:
         print("Problem decoding data from met office")
         print(data)
         traceback.print_exc(file=sys.stdout)
-        print("So weather forecast will default to no sun")
+        print("So weather forecast will default to empty")
 
-    return (three_hourly_uv, raw)
+    return raw
 
 if __name__ == "__main__":
     choose_weather_station()
