@@ -277,42 +277,27 @@ def draw_instants():
         y += 10
         
 def battery_stats(readings):
-    """Find key battery metrics"""
-    stats = {}
-    was_cheap = None
-    max_battery = None 
-    min_battery = None
-    pv = 0
-    house_on_peak = 0
+    """Find key battery metrics and return each as the tuple (value, time as % of day)"""
+    def doit(oldval, newval, func):
+        if oldval is None:
+            return newval
+        else:
+            return func(oldval, newval)
+        
+    max_batt_cheap = (None, None)
+    min_batt_cheap = (None, None)
+    max_batt_peak = (None, None)
+    min_batt_peak = (None, None)
     for r in readings:
-        #if ("reading_number" in r) and ("cheap_rate" in r) and ("battery %" in r):
-        #    print(r["reading_number"], r["cheap_rate"], r["battery %"])
         if "cheap_rate" in r:
-            if was_cheap is not None:
-                if was_cheap and (r["cheap_rate"] is False):    # End of cheap rate
-                    stats["battery charged to %"] = r["battery %"]
-            was_cheap = r["cheap_rate"]
+            if r["cheap_rate"]:
+                max_battery_on_cheap = doit(max_battery_on_cheap, r["battery %"], max)
+                min_battery_on_cheap = doit(min_battery_on_cheap, r["battery %"], min)
+            else:
+                max_battery_on_cheap = doit(max_battery_on_cheap, r["battery %"], max)
+                min_battery_on_cheap = doit(min_battery_on_cheap, r["battery %"], min)
 
-            if not r["cheap_rate"]:
-                if max_battery is None:
-                    max_battery = r["battery %"]
-                else:
-                    max_battery = max(max_battery, r["battery %"])
-                if min_battery is None:
-                    min_battery = r["battery %"]
-                else:
-                    min_battery = min(min_battery, r["battery %"])
-                if "house" in r:
-                    house_on_peak += r["house"]
-
-        if "pv" in r:
-            pv += r["pv"]
-    stats["max battery % on peak"] = max_battery
-    stats["min battery % on peak"] = min_battery
-    stats["pv"] = pv
-    stats["house on peak"] = house_on_peak
-
-    return stats
+    return { "max_batt_cheap" : max_batt_cheap, "min_batt_cheap" : min_batt_cheap, "max_batt_peak" : max_batt_peak, "min_batt_peak" : min_batt_peak } 
 
 def draw_stack(x, width, vals, cols):
     y = SCREEN_HEIGHT
