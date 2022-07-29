@@ -19,6 +19,9 @@ READING_BINS_PER_3H = (3 * 60 * 60) / READING_PERIOD
 WEATHER = []
 READINGS = []
 
+CLF = None
+PREDICTION = None
+
 def read_readings(f):
     readings = json.loads(open(f,"rt").read())
     bins = []
@@ -33,14 +36,19 @@ def read_readings(f):
             bins.append(pv)
             pv = 0
     assert len(bins) == 8
-    assert errors < 2   # Allow a small number of missed readings
+    assert errors < 3   # Allow a small number of missed readings (about 1%)
     return bins
+
+def relevant_weather_fields(raw):
+    weather = []
+    for b in range(len(raw)):
+        weather.append( [int(raw[b]["U"]), int(raw[b]["T"]), int(raw[b]["W"])] ) # UV & temperature are integers (on a continuous scale). Weather, though reported as an integer, is in fact a category  TODO: Turn it into one!
+    return weather
 
 def read_weather(f):
     raw = json.loads(open(f,"rt").read())["raw"]
-    weather = []
-    for b in range(8):
-        weather.append( [int(raw[b]["U"]), int(raw[b]["T"]), int(raw[b]["W"])] ) # UV & temperature are integers (on a continuous scale). Weather, though reported as an integer, is in fact a category 
+    weather = relevant_weather_fields(raw)
+    assert len(weather)==8
     return weather
 
 def load_files():
@@ -50,24 +58,20 @@ def load_files():
     for f in sorted(os.listdir(DIRECTORY)):
         if f.startswith("readings_"):
             ymd = f[9:19]
-            print("readings",ymd, ":", end="")
             if not os.path.exists(DIRECTORY + "weather_" + ymd + ".json"):
-                print("Ignoring file",f,"as no corresponding weather file for that day")
+                # print("Ignoring file",f,"as no corresponding weather file for that day")
                 file_not_read += 1
             else:
                 try:
                     readings = read_readings(DIRECTORY + f)
-                    print(" and weather ",end="")
                     weather = read_weather(DIRECTORY + "weather_" + ymd + ".json")
-                    print("OK")
                     READINGS.extend(readings)
                     WEATHER.extend(weather)
                     files_read_ok += 1
                 except Exception:
                     files_not_read += 1
-                    print("Exception reading file")
                     # traceback.print_exc(file=sys.stdout)
-                    # time.sleep(0.5)
+                    # time.sleep(1)
     print("Read",files_read_ok,"files, ignored",files_not_read,"files, acquired",len(READINGS),"readings")
 
 def print_results(predict):
@@ -79,13 +83,22 @@ def print_results(predict):
         error += e
     print("Av RMS error %0.3f" % (error/len(READINGS)))
 
-if __name__ == "__main__":
+
+def learn():
+    global CLF
     load_files()
-    clf = MLPRegressor(random_state=1, max_iter=1000000, hidden_layer_sizes = (100,100,100))
+    CLF = MLPRegressor(random_state=1, max_iter=1000000, hidden_layer_sizes = (100,100,100))
     t1 = time.time()
-    clf.fit(WEATHER, READINGS)
+    CLF.fit(WEATHER, READINGS)
     t2 = time.time()
     print("Fitting took %1.1fs" % (t2-t1))
 
-    p = clf.predict(WEATHER)
+def learn_and_predict(weather):
+    global CLF, PREDICTION
+    learn()
+    PREDICTION = CLF.predict(relevant_weather_fields(weather))
+
+if __name__ == "__main__":
+    learn()
+    p = CLF.predict(WEATHER)
     print_results(p)

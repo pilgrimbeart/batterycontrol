@@ -23,7 +23,7 @@ import traceback
 from pygame.locals import *
 import pprint
 
-import sofar, utcstuff, weather, filer, utils, config, icons
+import sofar, utcstuff, weather, filer, utils, config, icons, ml
 
 WEATHER_UPDATE_INTERVAL_S = 60 * 30
 SOFAR_UPDATE_INTERVAL_S = 1             # How often we read and display fast-changing numbers like power
@@ -240,6 +240,8 @@ def draw_instants():
     draw_text(str(values["PV Power"]["value"]), x, y, PV_COLOUR, BACKGROUND, align="right", font_size=20) 
     if "pv" in totals:
         draw_text("%2.1f" % totals["pv"], x2, y, PV_COLOUR, BACKGROUND, align="right", font_size=20)
+    if ml.PREDICTION is not None:
+        draw_text("predict %2.1f" % sum(ml.PREDICTION), x2, y+16, PV_COLOUR, BACKGROUND, align="right", font_size=10)
     y += STRIPCHART_HEIGHT
     draw_text(str(values["House Consumption"]["value"]), x, y, HOUSE_COLOUR, BACKGROUND, align="right", font_size=20) 
     if "house" in totals:
@@ -389,8 +391,8 @@ def totals_for_day(readings):
 
 def draw_readings():
     wid = SCREEN_WIDTH - LEFT_MARGIN
-    def draw_seg(data, i, x, y, name, max_value, colour):
-        scalar = (wid / 3) / float(READINGS_PER_DAY)  # Each day occupies a 1/3rd of the screen
+    def draw_seg(data, i, x, y, quantum, name, max_value, colour):
+        scalar = (wid / 3) / float(quantum)  # Each day occupies a 1/3rd of the screen
         if name not in data[i]:
             return 
         x = int(LEFT_MARGIN + x + i * scalar)
@@ -400,24 +402,28 @@ def draw_readings():
             colour = colour_lighten(colour)
         pygame.draw.rect(screen, colour, Rect(x,int(y + STRIPCHART_HEIGHT-height),int(scalar),height))
 
+    # Actuals
     for i in range(READINGS_PER_DAY):
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*1, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*2, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*3, "battery %", 100, BATTERY_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*4, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
+        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
+        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
+        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*1, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*2, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*3, "battery %", 100, BATTERY_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
-def get_weather_forecast():
+
+def get_weather_forecast_and_predict_PV():
     global THREE_HOURLY_WEATHER
     raw = weather.get_weather()
     THREE_HOURLY_WEATHER[1] = raw[0:8]
     THREE_HOURLY_WEATHER[2] = raw[8:16]
     filer.write_file("weather", utcstuff.todays_date_iso8601(),     { "raw" : raw[0:8] } )
     filer.write_file("weather", utcstuff.tomorrows_date_iso8601(),  { "raw" : raw[8:16] } ) 
+
+    ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
 
 def status_screen(s):
     print(s)
@@ -477,9 +483,10 @@ if filer.file_exists("weather", todays_date) and filer.file_exists("weather", to
     data2 = filer.read_file("weather", tomorrows_date)
     THREE_HOURLY_WEATHER[1] = data1["raw"]
     THREE_HOURLY_WEATHER[2] = data2["raw"]
+    ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
 else:
     print("No saved weather forecast so getting a fresh forecast")
-    get_weather_forecast()
+    get_weather_forecast_and_predict_PV()
 
 current_utc_date = utcstuff.todays_date_iso8601()
 
@@ -498,9 +505,7 @@ while(1):
         THREE_HOURLY_WEATHER[0] = THREE_HOURLY_WEATHER[1].copy()
         THREE_HOURLY_WEATHER[1] = THREE_HOURLY_WEATHER[2].copy()
         THREE_HOURLY_WEATHER[2] = {}
-        print("After shuffle, THW=",THREE_HOURLY_WEATHER)
-        get_weather_forecast()
-        print("After get_weather, THW=",THREE_HOURLY_WEATHER)
+        get_weather_forecast_and_predict_PV()
         redraw = True
 
     for event in pygame.event.get():
