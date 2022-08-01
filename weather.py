@@ -11,7 +11,7 @@ MET_OFFICE_SITELIST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxf
 MET_OFFICE_FORECAST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/"
 MAX_UV_REPORT = 9
 
-MET_CODES = {
+MET_CODES = { 
     0: { "desc" : "Clear night", "icon": None },
     1: { "desc" : "Sunny day", "icon" : "sun" },
     2: { "desc" : "Partly cloudy (night)", "icon" : "light cloud" },
@@ -44,6 +44,15 @@ MET_CODES = {
     29: { "desc" : "Thunder shower (day)", "icon" : "rain" },
     30: { "desc" : "Thunder", "icon" : "rain" }
     }
+
+
+def code_to_onehot(code):
+    codes = ["sun", "light cloud", "cloud", "light rain", "rain"]
+    result = [0] * (len(codes)+1)
+    icon = MET_CODES[int(code)]["icon"]
+    if icon in codes:
+        result[codes.index(icon)] = 1
+    return result
 
 def _read_metoffice(url):
     with urllib.request.urlopen(url + "&key=" + config.key("met_office")) as url:
