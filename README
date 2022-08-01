@@ -1,0 +1,4 @@
+To auto-start on boot, add these lines to /etc/rc.local
+    echo date >> /home/pi/git/batterycontrol/startup.log
+    nohup sudo -H -u pi /usr/bin/python /home/pi/git/batterycontrol/main.py >> /home/pi/git/batterycontrol/startup.log 2>&1 &
+
