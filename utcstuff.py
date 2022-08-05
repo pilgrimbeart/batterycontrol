@@ -37,7 +37,7 @@ def hhmm_dst_epoch(s):
     return datetime.datetime(now.year, now.month, now.day, hh, mm, 0).timestamp()  # Translate this time today into epoch-seconds, in a summer-time-aware fashion
 
 def cheap_start_end():
-    return hhmm_dst_epoch(config.key("cheap_start")), hhmm_dst_epoch(config.key("cheap_end"))
+    return hhmm_dst_epoch(config.setting("cheap_start")), hhmm_dst_epoch(config.setting("cheap_end"))
 
 def is_cheap(t):
     s,e = cheap_start_end()
@@ -52,7 +52,7 @@ def local_day_fraction(t):
 
 def is_cheap(t, start=None, end=None):
     if start is None:
-        start,end = config.key("cheap_start"), config.key("cheap_end")
+        start,end = config.setting("cheap_start"), config.setting("cheap_end")
     start,end = (int(start[0:2])*60 + int(start[3:5]))/(60*24), (int(end[0:2])*60 + int(end[3:5]))/(60*24)
     now = local_day_fraction(t)
 

@@ -24,7 +24,7 @@ CLF = None
 PREDICTION = None
 
 def read_readings(f):
-    readings = json.loads(open(f,"rt").read())
+    readings = json.loads(open(f,"rt").read())["readings"]
     bins = []
     pv = 0
     errors = 0
@@ -36,6 +36,7 @@ def read_readings(f):
         if r["reading_number"] % READING_BINS_PER_3H == READING_BINS_PER_3H-1:
             bins.append(pv)
             pv = 0
+    print(f,len(bins), errors)
     assert len(bins) == 8
     assert errors < 3   # Allow a small number of missed readings (about 1%)
     return bins

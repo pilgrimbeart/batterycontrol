@@ -78,7 +78,7 @@ def choose_weather_station():
 
     min_distance = None
     for d in data:
-        dist = distance(config.key("latitude"), config.key("longitude"), float(d["latitude"]), float(d["longitude"]))
+        dist = distance(config.setting("latitude"), config.setting("longitude"), float(d["latitude"]), float(d["longitude"]))
         if (min_distance is None) or (dist < min_distance):
             min_distance = dist
             WEATHER_NAME = d["name"]
@@ -86,7 +86,7 @@ def choose_weather_station():
             WEATHER_LONGITUDE = float(d["longitude"])
             WEATHER_LATITUDE = float(d["latitude"])
 
-    print("Closest Met Office forecast site to",config.key("latitude"),",",config.key("longitude"),"is", WEATHER_NAME, WEATHER_ID)
+    print("Closest Met Office forecast site to",config.setting("latitude"),",",config.setting("longitude"),"is", WEATHER_NAME, WEATHER_ID)
 
 def get_weather():
     raw = [{}] * 16

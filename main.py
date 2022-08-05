@@ -258,7 +258,7 @@ def draw_instants():
     draw_text("SAVINGS", x,y,WHITE,BACKGROUND, font_size=10)
     y += 10
     if "house pv" in totals:
-        draw_text("£%0.2f pv direct" % (totals["house pv"] * config.key("unit_cost_expensive")), x, y, WHITE, BACKGROUND, font_size=10)
+        draw_text("£%0.2f pv direct" % (totals["house pv"] * config.setting("unit_cost_expensive")), x, y, WHITE, BACKGROUND, font_size=10)
         y += 10
     if "pv savings" in totals:
         draw_text("£%0.2f pv shift" % totals["pv savings"], x, y, WHITE, BACKGROUND, font_size=10)
@@ -332,10 +332,10 @@ def draw_historic():
         date = utcstuff.date_days_relative_to_today_iso8601(-DAYS+d)
         x = int(LEFT_MARGIN + d * scalar)
         if filer.file_exists("readings", date):
-            readings = filer.read_file("readings", date)
+            readings = filer.read_file("readings", date)["readings"]
             totals = totals_for_day(readings)
             values = make_list_or_zeroes(totals, ["import cost at expensive", "import cost at cheap", "import savings", "pv savings", "house pv"])
-            values = values[0:4] + [values[4] * config.key("unit_cost_expensive")]    # House PV kWh -> £
+            values = values[0:4] + [values[4] * config.setting("unit_cost_expensive")]    # House PV kWh -> £
             draw_stack(LEFT_MARGIN + d*scalar, scalar,
                 values,
                 [GREY, LIGHT_GREY, BLUE, WHITE, YELLOW])
@@ -360,14 +360,14 @@ def transfer_odometers():
     is_cheap = utcstuff.is_cheap(time.time())
     READINGS[reading_number].update({"cheap_rate" : is_cheap }) 
     if is_cheap:    # TODO: Assumes that the sun never shines during cheap rate
-        import_at_cheap = config.key("unit_cost_cheap") * ODOMETERS["import"]
+        import_at_cheap = config.setting("unit_cost_cheap") * ODOMETERS["import"]
         import_at_expensive = 0
         pv_savings = 0
-        import_savings = (config.key("unit_cost_expensive") - config.key("unit_cost_cheap")) * ODOMETERS["batt charge"]
+        import_savings = (config.setting("unit_cost_expensive") - config.setting("unit_cost_cheap")) * ODOMETERS["batt charge"]
     else:
         import_at_cheap = 0
-        import_at_expensive = config.key("unit_cost_expensive") * ODOMETERS["import"]
-        pv_savings = config.key("unit_cost_expensive") * ODOMETERS["batt charge"] # Free!
+        import_at_expensive = config.setting("unit_cost_expensive") * ODOMETERS["import"]
+        pv_savings = config.setting("unit_cost_expensive") * ODOMETERS["batt charge"] # Free!
         import_savings = 0
     READINGS[reading_number].update({
         "import cost at cheap" : import_at_cheap,
@@ -376,7 +376,7 @@ def transfer_odometers():
         "import savings" : import_savings})
 
     print("Reading_number",reading_number,"is",READINGS[reading_number])
-    filer.write_file("readings", utcstuff.todays_date_iso8601(), READINGS)
+    filer.write_file("readings", utcstuff.todays_date_iso8601(), {"settings" : config.settings(), "readings" : READINGS})
     reset_odometers()
 
 def totals_for_day(readings):
@@ -449,8 +449,8 @@ icons.load_images()
 create_buttons()
 
 status_screen("configuring weather...")
-if "weather_id" in config.keys():
-    weather.WEATHER_ID = config.key("weather_id")
+if "weather_id" in config.settings():
+    weather.WEATHER_ID = config.setting("weather_id")
     print("Using weather station", weather.WEATHER_ID)
 else:
     print("Finding closest weather station")
@@ -463,13 +463,13 @@ status_screen("loading files...")
 yesterdays_date, todays_date, tomorrows_date = utcstuff.yesterdays_date_iso8601(), utcstuff.todays_date_iso8601(), utcstuff.tomorrows_date_iso8601()
 if filer.file_exists("readings", todays_date):
     print("Loading today's existing readings file")
-    READINGS = filer.read_file("readings", todays_date)
+    READINGS = filer.read_file("readings", todays_date)["readings"]
 else:
     print("No readings file yet for today") 
 
 if filer.file_exists("readings", yesterdays_date):
     print("Loading yesterday's existing readings file")
-    READINGS_YESTERDAY = filer.read_file("readings", yesterdays_date)
+    READINGS_YESTERDAY = filer.read_file("readings", yesterdays_date)["readings"]
 else:
     print("No readings file yet for today") 
 
