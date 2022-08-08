@@ -9,7 +9,7 @@ def kill_other_instances():
     for p in psutil.process_iter():
         cmd = p.cmdline()
         if len(cmd) > 1:
-            if cmd[0] == "python":
+            if cmd[0].endswith("python"):
                 if my_process_name in cmd[1]:
                     if not p.pid == my_pid:
                         print("Stopping existing process",cmd)

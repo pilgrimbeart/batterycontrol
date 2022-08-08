@@ -2,7 +2,7 @@
 #     https://github.com/greentangerine
 #     Gareth ???
 # License???
-# Internally everything is in UTC time, not local time, not summer-time (but the time displayed is local time)
+# Internally everything is in UTC time, not local time, not summer-time (but the time displayed is local time, and peak/off-peak times are given in local time because they follow summer-time changes)
 #
 # We get readings from the Sofar inverter very regularly
 # Some are instantaneous readings (e.g. battery %) and others are odometer.
@@ -29,6 +29,8 @@ WEATHER_UPDATE_INTERVAL_S = 60 * 30
 SOFAR_UPDATE_INTERVAL_S = 1             # How often we read and display fast-changing numbers like power
 READINGS_INTERVAL_S = 60*5              # How often we transfer accumulated, slow-changing numbers like kWh
 READINGS_PER_DAY = int((60*60*24)/READINGS_INTERVAL_S)
+BINS_PER_DAY = 8
+READINGS_PER_BIN = READINGS_PER_DAY / BINS_PER_DAY
 
 MAX_HOUSE_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY   # Sets the top of the chart range
 MAX_PV_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY
@@ -52,6 +54,7 @@ GREEN = 0, 255, 0
 YELLOW = 255,255,0
 RED = 255,0,0
 LIGHT_RED = 255, 128, 128
+MAGENTA = 255, 0, 255
 
 BACKGROUND = BLACK
 UV_COLOUR = YELLOW
@@ -61,6 +64,7 @@ HOUSE_COLOUR = RED
 HOUSE_CHEAP_COLOUR = LIGHT_RED
 BATTERY_COLOUR = BLUE
 IMPORT_COLOUR = GREY
+PREDICTION_COLOUR = MAGENTA
 
 BUTTON_FOREGROUND = WHITE
 BUTTON_BACKGROUND = DARK_BLUE
@@ -156,13 +160,13 @@ def chargelevel_click_handler(b):
     pass
 
 def draw_weather():
-    scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * 8)
+    scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * BINS_PER_DAY)
     for day in range(3):
         if len(THREE_HOURLY_WEATHER[day]) > 0:
-            for i in range(8):
+            for i in range(BINS_PER_DAY):
                 w = THREE_HOURLY_WEATHER[day][i]
                 h = (int(w["U"]) / float(MAX_UV)) * STRIPCHART_HEIGHT
-                x = int(LEFT_MARGIN + (day*8 + i) * scalar)
+                x = int(LEFT_MARGIN + (day * BINS_PER_DAY + i) * scalar)
                 pygame.draw.rect(screen, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
 
                 icon = weather.MET_CODES[int(w["W"])]["icon"]
@@ -230,26 +234,32 @@ def get_inverter_values_and_update_odometers():
     ODOMETERS["batt discharge"] += values["Battery Discharge kWh"]["value"]
 
 def draw_instants():
-    totals = totals_for_day(READINGS)
+    (off_peak, on_peak, totals) = totals_for_day(READINGS)
     values = sofar.prev_values()
-    x = int(LEFT_MARGIN + 2*(SCREEN_WIDTH-LEFT_MARGIN)/3 + 70)
-    x2 = x + 80
+    x = int(LEFT_MARGIN + 2*(SCREEN_WIDTH-LEFT_MARGIN)/3 + 55)
+    x2 = x + 95
     y = int(TITLE_HEIGHT + STRIPCHART_HEIGHT)
     draw_text("W",x,y-20,GREY,BACKGROUND,align="right", font_size=20)
     draw_text("kWh",x2,y-20,GREY,BACKGROUND,align="right", font_size=20)
+
     draw_text(str(values["PV Power"]["value"]), x, y, PV_COLOUR, BACKGROUND, align="right", font_size=20) 
     if "pv" in totals:
         draw_text("%2.1f" % totals["pv"], x2, y, PV_COLOUR, BACKGROUND, align="right", font_size=20)
-    if ml.PREDICTION is not None:
-        draw_text("predict %2.1f" % sum(ml.PREDICTION), x2, y+16, PV_COLOUR, BACKGROUND, align="right", font_size=10)
+    if ml.PV_PREDICTION is not None:
+        draw_text("predict %2.1f" % sum(ml.PV_PREDICTION), x2, y+16, PV_COLOUR, BACKGROUND, align="right", font_size=10)
+
     y += STRIPCHART_HEIGHT
     draw_text(str(values["House Consumption"]["value"]), x, y, HOUSE_COLOUR, BACKGROUND, align="right", font_size=20) 
-    if "house" in totals:
-        draw_text("%2.1f" % totals["house"], x2, y, HOUSE_COLOUR, BACKGROUND, align="right", font_size=20)
+    if ("house" in off_peak) and ("house" in on_peak):
+        draw_text("%2.1f+%2.1f" % (off_peak["house"], on_peak["house"]), x2, y, HOUSE_COLOUR, BACKGROUND, align="right", font_size=20)
+    if ml.CONSUMPTION_ON_PEAK_PREDICTION is not None:
+        draw_text("predict %2.1f" % sum(ml.CONSUMPTION_ON_PEAK_PREDICTION), x2, y+16, HOUSE_COLOUR, BACKGROUND, align="right", font_size=10)
+
     y += STRIPCHART_HEIGHT
     v = str(values["Battery Charge Power"]["value"])
     draw_text(v, x, y, [GREEN,RED][v[0]=="-"], BACKGROUND, align="right", font_size=20)
     draw_text(values["Battery Charge Level"]["text"], x2, y, BATTERY_COLOUR, BACKGROUND, align="right", font_size=20)
+
     y += STRIPCHART_HEIGHT
     draw_text(str(values["Grid Power"]["value"]), x, y, WHITE, BACKGROUND, align="right", font_size=20)
 
@@ -333,7 +343,7 @@ def draw_historic():
         x = int(LEFT_MARGIN + d * scalar)
         if filer.file_exists("readings", date):
             readings = filer.read_file("readings", date)["readings"]
-            totals = totals_for_day(readings)
+            (off_peak, on_peak, totals) = totals_for_day(readings)
             values = make_list_or_zeroes(totals, ["import cost at expensive", "import cost at cheap", "import savings", "pv savings", "house pv"])
             values = values[0:4] + [values[4] * config.setting("unit_cost_expensive")]    # House PV kWh -> £
             draw_stack(LEFT_MARGIN + d*scalar, scalar,
@@ -380,14 +390,23 @@ def transfer_odometers():
     reset_odometers()
 
 def totals_for_day(readings):
-    totals = {}
+    def set_or_add(mydict, mykey, myvalue):
+        if mykey not in mydict:
+            mydict[mykey] = myvalue
+        else:
+            mydict[mykey] += myvalue
+    off_peak = {}
+    on_peak = {}
+    totals = {} # Totals is off-peak PLUS on-peak
     for r in readings:
         for (k,v) in r.items():
-            if k not in totals:
-                totals[k] = v
+            set_or_add(totals, k, v)
+            if r["cheap_rate"]:
+                set_or_add(off_peak, k, v)
             else:
-                totals[k] += v
-    return totals
+                set_or_add(on_peak, k, v)
+
+    return (off_peak, on_peak, totals)
 
 def draw_readings():
     wid = SCREEN_WIDTH - LEFT_MARGIN
@@ -414,6 +433,30 @@ def draw_readings():
         draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
         draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
+def draw_predictions():
+    def draw_prediction(stripchart_number, bins, limit):
+        wid = SCREEN_WIDTH - LEFT_MARGIN
+        x_scalar = (wid / 3) / float(BINS_PER_DAY)
+        y_scalar = STRIPCHART_HEIGHT / (limit * READINGS_PER_BIN)
+        pane = 1    # Today
+        last_x = None
+        last_y = None
+        for bin in range(BINS_PER_DAY):
+            x = int(LEFT_MARGIN + (pane * BINS_PER_DAY + bin) * x_scalar)
+            y = int(((stripchart_number+1) * STRIPCHART_HEIGHT) - bins[bin] * y_scalar)
+            if last_x is not None:
+                pygame.draw.line(screen, PREDICTION_COLOUR, (last_x, last_y), (x, y))   # Vertical step from last reading
+            new_x = int(x + x_scalar)
+            pygame.draw.line(screen, PREDICTION_COLOUR, (x,y), (new_x,y))          # Horizontal line for this reading
+            last_x = new_x
+            last_y = y
+
+    if ml.PV_PREDICTION is not None:
+        draw_prediction(1, ml.PV_PREDICTION, MAX_PV_KWH_PER_READING)
+
+    if ml.CONSUMPTION_ON_PEAK_PREDICTION is not None:
+        draw_prediction(2, ml.CONSUMPTION_ON_PEAK_PREDICTION, MAX_HOUSE_KWH_PER_READING)
+
 
 def get_weather_forecast_and_predict_PV():
     global THREE_HOURLY_WEATHER
@@ -432,6 +475,7 @@ def status_screen(s):
     pygame.display.flip()
 
 utils.kill_other_instances()
+
 os.environ["DISPLAY"] = ":0"	# This makes it work even when we run via ssh
 pygame.display.init()
 pygame.init()
@@ -483,6 +527,7 @@ if filer.file_exists("weather", todays_date) and filer.file_exists("weather", to
     data2 = filer.read_file("weather", tomorrows_date)
     THREE_HOURLY_WEATHER[1] = data1["raw"]
     THREE_HOURLY_WEATHER[2] = data2["raw"]
+    status_screen("machine learning...")
     ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
 else:
     print("No saved weather forecast so getting a fresh forecast")
@@ -536,6 +581,7 @@ while(1):
             draw_instants()
             draw_weather()
             draw_readings()
+            draw_predictions()
             draw_time_and_cursor()
         else:
             draw_historic()
