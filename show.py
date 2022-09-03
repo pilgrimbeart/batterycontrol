@@ -10,7 +10,11 @@ def render(v):
     return str(v)
 
 if __name__ == "__main__":
-    readings = filer.read_file("readings", utcstuff.todays_date_iso8601())
+    if len(sys.argv)==1:
+        fname = utcstuff.todays_date_iso8601()
+    else:
+        fname = sys.argv[1]
+    readings = filer.read_file("readings", fname)["readings"]
     widths = {}
     for r in readings:
         for (k,v) in r.items():
