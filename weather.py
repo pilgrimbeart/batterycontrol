@@ -11,6 +11,8 @@ MET_OFFICE_SITELIST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxf
 MET_OFFICE_FORECAST_URL = "http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/"
 MAX_UV_REPORT = 9
 
+# If you try to read *todays* weather late in the day (e.g. first-time-through or starting after a long power cut) then the forecast service may return empty data for the hours before now
+
 MET_CODES = { 
     0: { "desc" : "Clear night", "icon": None },
     1: { "desc" : "Sunny day", "icon" : "sun" },

@@ -165,15 +165,18 @@ def draw_weather():
         if len(THREE_HOURLY_WEATHER[day]) > 0:
             for i in range(BINS_PER_DAY):
                 w = THREE_HOURLY_WEATHER[day][i]
-                h = (int(w["U"]) / float(MAX_UV)) * STRIPCHART_HEIGHT
-                x = int(LEFT_MARGIN + (day * BINS_PER_DAY + i) * scalar)
-                pygame.draw.rect(screen, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
+                if "U" in w:
+                    h = (int(w["U"]) / float(MAX_UV)) * STRIPCHART_HEIGHT
+                    x = int(LEFT_MARGIN + (day * BINS_PER_DAY + i) * scalar)
+                    pygame.draw.rect(screen, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
 
-                icon = weather.MET_CODES[int(w["W"])]["icon"]
-                if icon is not None:
-                    icons.draw_image(screen, icon, x, 16)
+                if "W" in w:
+                    icon = weather.MET_CODES[int(w["W"])]["icon"]
+                    if icon is not None:
+                        icons.draw_image(screen, icon, x, 16)
 
-                draw_text(w["T"], x, STRIPCHART_HEIGHT, WHITE, BLACK, font_size=10)
+                if "T" in w:
+                    draw_text(w["T"], x, STRIPCHART_HEIGHT, WHITE, BLACK, font_size=10)
 
 clock_flash = False
 
