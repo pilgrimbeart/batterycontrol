@@ -10,6 +10,8 @@ import sys, traceback, time
 import numpy as np
 from sklearn.neural_network import MLPRegressor
 import weather  # Just to map weather codes to icons (=categoricals)
+import utcstuff
+import config
 
 DIRECTORY = "../bc_data/"
 
@@ -26,7 +28,6 @@ CLF = None
 PV_PREDICTION = None
 CONSUMPTION_ON_PEAK_PREDICTION = None
 
-
 def read_readings(f, param, measure_off_and_on_peak = False):
     # Returns a set of binned data, plus an error flag
     readings = json.loads(open(f,"rt").read())["readings"]
@@ -42,7 +43,7 @@ def read_readings(f, param, measure_off_and_on_peak = False):
         if r["reading_number"] % READING_BINS_PER_3H == READING_BINS_PER_3H-1:
             bins.append(value)
             value = 0
-    print(f,len(bins), errors)
+    # print(f,len(bins), errors)
     if len(bins) != BINS_PER_DAY:
         return (False, None)
     if errors >= 3:  # Allow a small number of missed readings (about 1%)
@@ -53,12 +54,23 @@ def relevant_weather_fields(raw):
     wdata = []
     for b in range(len(raw)):
         # We include bin number as a proxy for time of day, which is important since solar panels face in a particular direction
-        arr = [b, int(raw[b]["U"]), int(raw[b]["T"])]   # UV & temperature are integers (i.e. on a continuous scale from a ML pov)
-        arr.extend(weather.code_to_onehot(raw[b]["W"])) # Weather, though reported as an integer, is in fact a categorical, so encode as one-hot
+        r = raw[b]
+        if ("U" not in r) or ("T" not in r) or ("W" not in r):
+            print("Missing U/T/W fields in weather forecast data bin",b,"so using default values")
+            u = 0
+            t = 20
+            w = 0
+        else:
+            u = int(r["U"])
+            t = int(r["T"])
+            w = r["W"]
+        arr = [b, u, t]   # UV & temperature are integers (i.e. on a continuous scale from a ML pov)
+        arr.extend(weather.code_to_onehot(w)) # Weather, though reported as an integer, is in fact a categorical, so encode as one-hot
         wdata.append(arr)
     return wdata
 
-def read_weather(f):
+def read_weather(ymd_str):
+    f = DIRECTORY + "weather_" + ymd_str + ".json"
     raw = json.loads(open(f,"rt").read())["raw"]
     wdata = relevant_weather_fields(raw)
     if len(wdata) != BINS_PER_DAY:
@@ -84,7 +96,7 @@ def load_files():
                 if not ok:
                     files_no_read += 1
                     continue
-                (ok, wdata) = read_weather(DIRECTORY + "weather_" + ymd + ".json")
+                (ok, wdata) = read_weather(ymd)
                 if not ok:
                     files_not_read += 1
                     continue
@@ -107,17 +119,15 @@ def learn_consumption():
     # We're not really "learning" - just find average per bin
     global CONSUMPTION_ON_PEAK_PREDICTION
     CONSUMPTION_ON_PEAK_PREDICTION = [0] * BINS_PER_DAY
-    COUNT = [0] * BINS_PER_DAY
-    print("CP=",CONSUMPTION_ON_PEAK_PREDICTION)
+    count = [0] * BINS_PER_DAY
     for (w,r) in zip(WEATHER_FORECAST, READINGS_HOUSE_ON_PEAK):
         bin = w[0]  # First element in weather array is bin number (we just happen to know)
         CONSUMPTION_ON_PEAK_PREDICTION[bin] += r
-        COUNT[bin] += 1
+        count[bin] += 1
     for b in range(BINS_PER_DAY):
-        CONSUMPTION_ON_PEAK_PREDICTION[b] /= float(COUNT[b])
-    print("COUNT",COUNT)
-    print("CONSUMPTION_ON_PEAK_PREDICTION",CONSUMPTION_ON_PEAK_PREDICTION)
-    print(sum(CONSUMPTION_ON_PEAK_PREDICTION))
+        CONSUMPTION_ON_PEAK_PREDICTION[b] /= float(count[b])
+    # print("CONSUMPTION_ON_PEAK_PREDICTION",CONSUMPTION_ON_PEAK_PREDICTION)
+    # print(sum(CONSUMPTION_ON_PEAK_PREDICTION))
 
 def learn_weather():
     global CLF
@@ -127,17 +137,46 @@ def learn_weather():
     t2 = time.time()
     print("Fitting took %1.1fs" % (t2-t1))
 
+def predict_battery():
+    print("Predict battery")
+    print("PV_PREDICTION",PV_PREDICTION)
+    print("CONSUMPTION_ON_PEAK_PREDICTION", CONSUMPTION_ON_PEAK_PREDICTION)
+    batt = 0    # All relative to arbitrary 0 starting point
+    min_batt = 0
+    max_batt = 0
+    for bin in range(BINS_PER_DAY):
+        batt += PV_PREDICTION[bin] - CONSUMPTION_ON_PEAK_PREDICTION[bin]
+        min_batt = min(batt, min_batt)
+        max_batt = max(batt, max_batt)
+    rng = max_batt - min_batt
+    print("min_batt, max_batt, rng", min_batt, max_batt, rng)
+    batt_kwh = config.setting("battery_kWh")
+    min_percent = config.setting("min_battery_%")
+    if rng > batt_kwh:
+        print("Cannot satisfy requirement - battery too small")
+
 def learn():
     load_files()
     learn_consumption()
     learn_weather()
 
-def learn_and_predict(wdata):
+def learn_and_predict(wdata, is_raw=True):
     global CLF, PV_PREDICTION
     learn()
-    PV_PREDICTION = CLF.predict(relevant_weather_fields(wdata))
+    if is_raw:
+        wdata = relevant_weather_fields(wdata)
+    PV_PREDICTION = CLF.predict(wdata)
+    predict_battery()
 
 if __name__ == "__main__":
+    # Predict today's weather forecast
+    # todays_date = utcstuff.todays_date_iso8601()
+    # (ok, today_forecast) = read_weather(todays_date)
+    # assert ok
+    # print("today_forecast",today_forecast)
+    # learn_and_predict(today_forecast, is_raw=False)
+
+    # Predict on all weather data (should really be a separate dataset)
     learn()
     p = CLF.predict(WEATHER_FORECAST)
     print_results(p)
