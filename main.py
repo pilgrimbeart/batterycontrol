@@ -72,10 +72,6 @@ BUTTON_SELECTED = LIGHT_BLUE
 
 BUTTONS = {}
 
-THREE_HOURLY_WEATHER = [{}, {}, {}]   # 3-hourly forecasts for yesterday[0], today[1] and tomorrow[2] (normalised to 1.0)
-READINGS = [{}] * READINGS_PER_DAY   # Today's Sofar readings
-READINGS_YESTERDAY = [{}] * READINGS_PER_DAY
-
 fonts = {}
 
 def create_buttons():
@@ -121,7 +117,7 @@ def draw_text(text, x,y, fg, bg, font_size=14, align="left", valign="top", rotat
         x -= int(tr.width/2)
     if valign=="centre":
         y -= int(tr.height/2)
-    screen.blit(text, offset(tr, x, y), special_flags = pygame.BLEND_RGBA_ADD)
+    SCREEN.blit(text, offset(tr, x, y), special_flags = pygame.BLEND_RGBA_ADD)
 
 def draw_button(b):
     if b["state"]:
@@ -131,7 +127,7 @@ def draw_button(b):
     x,y = b["x"], b["y"]
     width, height = b["width"], b["height"]
     but_rect = Rect(int(x),int(y), int(width),int(height))
-    pygame.draw.rect(screen, button_colour, but_rect)
+    pygame.draw.rect(SCREEN, button_colour, but_rect)
     draw_text(b["text"], x+width/2, y+height/2, BUTTON_FOREGROUND, BACKGROUND, font_size=24, align="centre", valign="centre")
     return but_rect
 
@@ -159,21 +155,21 @@ def mode_button_click_handler(b):
 def chargelevel_click_handler(b):
     pass
 
-def draw_weather():
+def draw_weather(three_hourly_weather):
     scalar = (SCREEN_WIDTH-LEFT_MARGIN) / float(3 * BINS_PER_DAY)
     for day in range(3):
-        if len(THREE_HOURLY_WEATHER[day]) > 0:
+        if len(three_hourly_weather[day]) > 0:
             for i in range(BINS_PER_DAY):
-                w = THREE_HOURLY_WEATHER[day][i]
+                w = three_hourly_weather[day][i]
                 if "U" in w:
                     h = (int(w["U"]) / float(MAX_UV)) * STRIPCHART_HEIGHT
                     x = int(LEFT_MARGIN + (day * BINS_PER_DAY + i) * scalar)
-                    pygame.draw.rect(screen, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
+                    pygame.draw.rect(SCREEN, UV_COLOUR, Rect(x, int(STRIPCHART_HEIGHT - h), int(scalar), int(h)))
 
                 if "W" in w:
                     icon = weather.MET_CODES[int(w["W"])]["icon"]
                     if icon is not None:
-                        icons.draw_image(screen, icon, x, 16)
+                        icons.draw_image(SCREEN, icon, x, 16)
 
                 if "T" in w:
                     draw_text(w["T"], x, STRIPCHART_HEIGHT, WHITE, BLACK, font_size=10)
@@ -186,11 +182,11 @@ def draw_time_and_cursor():
     # Day dividers
     wid = SCREEN_WIDTH - LEFT_MARGIN
     x = int(LEFT_MARGIN + wid/3.0)
-    pygame.draw.line(screen, WHITE, (x,0), (x, SCREEN_HEIGHT))
+    pygame.draw.line(SCREEN, WHITE, (x,0), (x, SCREEN_HEIGHT))
     x = int(LEFT_MARGIN + 2*wid/3.0)
-    pygame.draw.line(screen, WHITE, (x,0), (x, SCREEN_HEIGHT))
+    pygame.draw.line(SCREEN, WHITE, (x,0), (x, SCREEN_HEIGHT))
     xnow = int(LEFT_MARGIN + wid/3.0 + wid/3.0 * (time.time() - utcstuff.start_of_today_epoch_s()) / (60*60*24))
-    pygame.draw.line(screen, GREY, (xnow,0), (xnow, SCREEN_HEIGHT)) 
+    pygame.draw.line(SCREEN, GREY, (xnow,0), (xnow, SCREEN_HEIGHT)) 
 
     # Titles along the top
     draw_text("yesterday", (LEFT_MARGIN + wid/6.0), 0, WHITE, BACKGROUND, align="centre")
@@ -236,8 +232,8 @@ def get_inverter_values_and_update_odometers():
     ODOMETERS["batt charge"] += values["Battery Charge kWh"]["value"]
     ODOMETERS["batt discharge"] += values["Battery Discharge kWh"]["value"]
 
-def draw_instants():
-    (off_peak, on_peak, totals) = totals_for_day(READINGS)
+def draw_instants(readings):
+    (off_peak, on_peak, totals) = totals_for_day(readings)
     values = sofar.prev_values()
     x = int(LEFT_MARGIN + 2*(SCREEN_WIDTH-LEFT_MARGIN)/3 + 55)
     x2 = x + 95
@@ -318,7 +314,7 @@ def draw_stack(x, width, vals, cols):
     y = SCREEN_HEIGHT
     for value, colour in zip(vals,cols):
         height = value * 20
-        pygame.draw.rect(screen, colour, Rect(int(x), int(y-height), int(width), int(height)+1))    # Add 1 to height to ensure no gap between bars
+        pygame.draw.rect(SCREEN, colour, Rect(int(x), int(y-height), int(width), int(height)+1))    # Add 1 to height to ensure no gap between bars
         y -= height
 
 def make_list_or_zeroes(the_set, the_keys):
@@ -356,22 +352,21 @@ def draw_historic():
         if filer.file_exists("weather", date):
             weather = filer.read_file("weather", date)["raw"]
             height = int(sum_by_key(weather,"U") * 3)
-            pygame.draw.rect(screen, UV_COLOUR, Rect(x,int(STRIPCHART_HEIGHT-height),int(scalar)+1,height))
+            pygame.draw.rect(SCREEN, UV_COLOUR, Rect(x,int(STRIPCHART_HEIGHT-height),int(scalar)+1,height))
             
-        pygame.draw.line(screen, DARK_GREY, (x,0), (x, SCREEN_HEIGHT))
+        pygame.draw.line(SCREEN, DARK_GREY, (x,0), (x, SCREEN_HEIGHT))
 
-def transfer_odometers():
-    global READINGS
+def transfer_odometers(readings):
     now = time.time()
     reading_number = int((now - utcstuff.start_of_today_epoch_s()) / READINGS_INTERVAL_S)
-    READINGS[reading_number] = ODOMETERS.copy()
-    READINGS[reading_number].update({"battery %" : sofar.prev_values()["Battery Charge Level"]["value"]})   # Instantaneous value at the end of the period, not odometer reading 
-    READINGS[reading_number].update({"reading_number" : reading_number, "end" : int(time.time()) })
-    pv, house = READINGS[reading_number]["pv"], READINGS[reading_number]["house"]
-    READINGS[reading_number].update({"house pv" :  min(pv,house) })
+    readings[reading_number] = ODOMETERS.copy()
+    readings[reading_number].update({"battery %" : sofar.prev_values()["Battery Charge Level"]["value"]})   # Instantaneous value at the end of the period, not odometer reading 
+    readings[reading_number].update({"reading_number" : reading_number, "end" : int(time.time()) })
+    pv, house = readings[reading_number]["pv"], readings[reading_number]["house"]
+    readings[reading_number].update({"house pv" :  min(pv,house) })
 
     is_cheap = utcstuff.is_cheap(time.time())
-    READINGS[reading_number].update({"cheap_rate" : is_cheap }) 
+    readings[reading_number].update({"cheap_rate" : is_cheap }) 
     if is_cheap:    # TODO: Assumes that the sun never shines during cheap rate
         import_at_cheap = config.setting("unit_cost_cheap") * ODOMETERS["import"]
         import_at_expensive = 0
@@ -382,14 +377,14 @@ def transfer_odometers():
         import_at_expensive = config.setting("unit_cost_expensive") * ODOMETERS["import"]
         pv_savings = config.setting("unit_cost_expensive") * ODOMETERS["batt charge"] # Free!
         import_savings = 0
-    READINGS[reading_number].update({
+    readings[reading_number].update({
         "import cost at cheap" : import_at_cheap,
         "import cost at expensive" : import_at_expensive,
         "pv savings" : pv_savings,
         "import savings" : import_savings})
 
-    print("Reading_number",reading_number,"is",READINGS[reading_number])
-    filer.write_file("readings", utcstuff.todays_date_iso8601(), {"settings" : config.settings(), "readings" : READINGS})
+    print("Reading_number",reading_number,"is",readings[reading_number])
+    filer.write_file("readings", utcstuff.todays_date_iso8601(), {"settings" : config.settings(), "readings" : readings})
     reset_odometers()
 
 def totals_for_day(readings):
@@ -411,7 +406,7 @@ def totals_for_day(readings):
 
     return (off_peak, on_peak, totals)
 
-def draw_readings():
+def draw_readings(readings_yesterday, readings):
     wid = SCREEN_WIDTH - LEFT_MARGIN
     def draw_seg(data, i, x, y, quantum, name, max_value, colour):
         scalar = (wid / 3) / float(quantum)  # Each day occupies a 1/3rd of the screen
@@ -422,19 +417,19 @@ def draw_readings():
         height = int((STRIPCHART_HEIGHT * val) / max_value)
         if data[i]["cheap_rate"]:
             colour = colour_lighten(colour)
-        pygame.draw.rect(screen, colour, Rect(x,int(y + STRIPCHART_HEIGHT-height),int(scalar),height))
+        pygame.draw.rect(SCREEN, colour, Rect(x,int(y + STRIPCHART_HEIGHT-height),int(scalar),height))
 
     # Actuals
     for i in range(READINGS_PER_DAY):
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
-        draw_seg(READINGS_YESTERDAY, i, 0, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
+        draw_seg(readings_yesterday, i, 0, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
+        draw_seg(readings_yesterday, i, 0, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
+        draw_seg(readings_yesterday, i, 0, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(readings_yesterday, i, 0, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
-        draw_seg(READINGS, i, wid/3, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
+        draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*1, READINGS_PER_DAY, "pv", MAX_PV_KWH_PER_READING, PV_COLOUR)
+        draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*2, READINGS_PER_DAY, "house", MAX_HOUSE_KWH_PER_READING, HOUSE_COLOUR)
+        draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
+        draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
 def draw_predictions():
     def draw_prediction(stripchart_number, bins, limit):
@@ -448,9 +443,9 @@ def draw_predictions():
             x = int(LEFT_MARGIN + (pane * BINS_PER_DAY + bin) * x_scalar)
             y = int(((stripchart_number+1) * STRIPCHART_HEIGHT) - bins[bin] * y_scalar)
             if last_x is not None:
-                pygame.draw.line(screen, PREDICTION_COLOUR, (last_x, last_y), (x, y))   # Vertical step from last reading
+                pygame.draw.line(SCREEN, PREDICTION_COLOUR, (last_x, last_y), (x, y))   # Vertical step from last reading
             new_x = int(x + x_scalar)
-            pygame.draw.line(screen, PREDICTION_COLOUR, (x,y), (new_x,y))          # Horizontal line for this reading
+            pygame.draw.line(SCREEN, PREDICTION_COLOUR, (x,y), (new_x,y))          # Horizontal line for this reading
             last_x = new_x
             last_y = y
 
@@ -461,135 +456,143 @@ def draw_predictions():
         draw_prediction(2, ml.CONSUMPTION_ON_PEAK_PREDICTION, MAX_HOUSE_KWH_PER_READING)
 
 
-def get_weather_forecast_and_predict_PV():
-    global THREE_HOURLY_WEATHER
+def get_weather_forecast_and_predict_PV(three_hourly_weather):
     raw = weather.get_weather()
-    THREE_HOURLY_WEATHER[1] = raw[0:8]
-    THREE_HOURLY_WEATHER[2] = raw[8:16]
+    three_hourly_weather[1] = raw[0:8]
+    three_hourly_weather[2] = raw[8:16]
     filer.write_file("weather", utcstuff.todays_date_iso8601(),     { "raw" : raw[0:8] } )
     filer.write_file("weather", utcstuff.tomorrows_date_iso8601(),  { "raw" : raw[8:16] } ) 
 
-    ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
+    ml.learn_and_predict(three_hourly_weather[1])
 
 def status_screen(s):
     print(s)
-    screen.fill(BLACK)
+    SCREEN.fill(BLACK)
     draw_text(s, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, WHITE, BLACK, align="centre")
     pygame.display.flip()
 
-utils.kill_other_instances()
+def main():
+    global SCREEN, SCREEN_WIDTH, SCREEN_HEIGHT
 
-os.environ["DISPLAY"] = ":0"	# This makes it work even when we run via ssh
-pygame.display.init()
-pygame.init()
-screen = pygame.display.set_mode(flags=pygame.FULLSCREEN)
-SCREEN_WIDTH, SCREEN_HEIGHT = screen.get_size()
-# pygame.mouse.set_visible(False)   # Seems to stop touchscreen from working too!
-pygame.mouse.set_pos(SCREEN_WIDTH, SCREEN_HEIGHT)
+    THREE_HOURLY_WEATHER = [{}, {}, {}]   # 3-hourly forecasts for yesterday[0], today[1] and tomorrow[2] (normalised to 1.0)
+    READINGS = [{}] * READINGS_PER_DAY   # Today's Sofar readings
+    READINGS_YESTERDAY = [{}] * READINGS_PER_DAY
 
-status_screen("starting...")
+    utils.kill_other_instances()
 
-reset_odometers()
+    os.environ["DISPLAY"] = ":0"	# This makes it work even when we run via ssh
+    pygame.display.init()
+    pygame.init()
+    SCREEN = pygame.display.set_mode(flags=pygame.FULLSCREEN)
+    SCREEN_WIDTH, SCREEN_HEIGHT = SCREEN.get_size()
+    # pygame.mouse.set_visible(False)   # Seems to stop touchscreen from working too!
+    pygame.mouse.set_pos(SCREEN_WIDTH, SCREEN_HEIGHT)
 
-icons.load_images()
+    status_screen("starting...")
 
-create_buttons()
+    reset_odometers()
 
-status_screen("configuring weather...")
-if "weather_id" in config.settings():
-    weather.WEATHER_ID = config.setting("weather_id")
-    print("Using weather station", weather.WEATHER_ID)
-else:
-    print("Finding closest weather station")
-    weather.choose_weather_station()
+    icons.load_images()
 
-status_screen("reading from inverter...")
-sofar.read_sofar()  # Get sensible values into cache
+    create_buttons()
 
-status_screen("loading files...")
-yesterdays_date, todays_date, tomorrows_date = utcstuff.yesterdays_date_iso8601(), utcstuff.todays_date_iso8601(), utcstuff.tomorrows_date_iso8601()
-if filer.file_exists("readings", todays_date):
-    print("Loading today's existing readings file")
-    READINGS = filer.read_file("readings", todays_date)["readings"]
-else:
-    print("No readings file yet for today") 
+    status_screen("configuring weather...")
+    if "weather_id" in config.settings():
+        weather.WEATHER_ID = config.setting("weather_id")
+        print("Using weather station", weather.WEATHER_ID)
+    else:
+        print("Finding closest weather station")
+        weather.choose_weather_station()
 
-if filer.file_exists("readings", yesterdays_date):
-    print("Loading yesterday's existing readings file")
-    READINGS_YESTERDAY = filer.read_file("readings", yesterdays_date)["readings"]
-else:
-    print("No readings file yet for today") 
+    status_screen("reading from inverter...")
+    sofar.read_sofar()  # Get sensible values into cache
 
-if filer.file_exists("weather", yesterdays_date):
-    THREE_HOURLY_WEATHER[0] = filer.read_file("weather", yesterdays_date)["raw"] # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
-    print("Loaded yesterday's weather", THREE_HOURLY_WEATHER[0])
+    status_screen("loading files...")
+    yesterdays_date, todays_date, tomorrows_date = utcstuff.yesterdays_date_iso8601(), utcstuff.todays_date_iso8601(), utcstuff.tomorrows_date_iso8601()
+    if filer.file_exists("readings", todays_date):
+        print("Loading today's existing readings file")
+        READINGS = filer.read_file("readings", todays_date)["readings"]
+    else:
+        print("No readings file yet for today") 
 
-if filer.file_exists("weather", todays_date) and filer.file_exists("weather", tomorrows_date):
-    print("Loading existing weather forecast")
-    data1 = filer.read_file("weather", todays_date)
-    data2 = filer.read_file("weather", tomorrows_date)
-    THREE_HOURLY_WEATHER[1] = data1["raw"]
-    THREE_HOURLY_WEATHER[2] = data2["raw"]
-    status_screen("machine learning...")
-    ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
-else:
-    print("No saved weather forecast so getting a fresh forecast")
-    get_weather_forecast_and_predict_PV()
-
-current_utc_date = utcstuff.todays_date_iso8601()
-
-redraw = False
-
-last_sofar_instants_read = 0
-last_odometer_transfer = 0
-odometers_need_reset = True
-
-while(1):
-    if current_utc_date != utcstuff.todays_date_iso8601():
-        current_utc_date = utcstuff.todays_date_iso8601()
-        print("New UTC day", current_utc_date)
-        READINGS_YESTERDAY = READINGS.copy()
-        READINGS = [{}] * READINGS_PER_DAY
-        THREE_HOURLY_WEATHER[0] = THREE_HOURLY_WEATHER[1].copy()
-        THREE_HOURLY_WEATHER[1] = THREE_HOURLY_WEATHER[2].copy()
-        THREE_HOURLY_WEATHER[2] = {}
-        get_weather_forecast_and_predict_PV()
-        redraw = True
-
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            sys.exit()
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            test_hit(pygame.mouse.get_pos())
-            redraw = True
-
-    if time.time() - last_sofar_instants_read > SOFAR_UPDATE_INTERVAL_S:
-        last_sofar_instants_read = time.time()
-        redraw = True
+    if filer.file_exists("readings", yesterdays_date):
+        print("Loading yesterday's existing readings file")
+        READINGS_YESTERDAY = filer.read_file("readings", yesterdays_date)["readings"]
+    else:
+        print("No readings file for yesterday") 
     
-    if time.time() - last_odometer_transfer > READINGS_INTERVAL_S:
-        if odometers_need_reset:
-            reset_odometers()       # First time through we will have started in the middle of a period, so need to throw-away our partial "bin" of data
-            odometers_need_reset = False
-        else:
-            transfer_odometers()
-        last_odometer_transfer = time.time()
-        redraw = True
-
-    if redraw:
-        screen.fill(BLACK)
-        get_inverter_values_and_update_odometers()
-        draw_buttons()
-        if BUTTONS["mode"]["text"] == "live":
-            draw_instants()
-            draw_weather()
-            draw_readings()
-            draw_predictions()
-            draw_time_and_cursor()
-        else:
-            draw_historic()
-        pygame.display.flip()
-        redraw = False
-
-    time.sleep(0.05)
-
+    if filer.file_exists("weather", yesterdays_date):
+        THREE_HOURLY_WEATHER[0] = filer.read_file("weather", yesterdays_date)["raw"] # Otherwise we have no historical forecast for yesterday - can't ask for yesterday's forecast
+        print("Loaded yesterday's weather", THREE_HOURLY_WEATHER[0])
+    
+    if filer.file_exists("weather", todays_date) and filer.file_exists("weather", tomorrows_date):
+        print("Loading existing weather forecast")
+        data1 = filer.read_file("weather", todays_date)
+        data2 = filer.read_file("weather", tomorrows_date)
+        THREE_HOURLY_WEATHER[1] = data1["raw"]
+        THREE_HOURLY_WEATHER[2] = data2["raw"]
+        status_screen("machine learning...")
+        ml.learn_and_predict(THREE_HOURLY_WEATHER[1])
+    else:
+        print("No saved weather forecast so getting a fresh forecast")
+        get_weather_forecast_and_predict_PV(THREE_HOURLY_WEATHER)
+    
+    current_utc_date = utcstuff.todays_date_iso8601()
+    
+    redraw = False
+    
+    last_sofar_instants_read = 0
+    last_odometer_transfer = 0
+    odometers_need_reset = True
+    
+    while(1):
+        if current_utc_date != utcstuff.todays_date_iso8601():
+            current_utc_date = utcstuff.todays_date_iso8601()
+            print("New UTC day", current_utc_date)
+            READINGS_YESTERDAY = READINGS.copy()
+            READINGS = [{}] * READINGS_PER_DAY
+            THREE_HOURLY_WEATHER[0] = THREE_HOURLY_WEATHER[1].copy()
+            THREE_HOURLY_WEATHER[1] = THREE_HOURLY_WEATHER[2].copy()
+            THREE_HOURLY_WEATHER[2] = {}
+            get_weather_forecast_and_predict_PV(THREE_HOURLY_WEATHER)
+            redraw = True
+    
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                test_hit(pygame.mouse.get_pos())
+                redraw = True
+    
+        if time.time() - last_sofar_instants_read > SOFAR_UPDATE_INTERVAL_S:
+            last_sofar_instants_read = time.time()
+            redraw = True
+     
+        if time.time() - last_odometer_transfer > READINGS_INTERVAL_S:
+            if odometers_need_reset:
+                reset_odometers()       # First time through we will have started in the middle of a period, so need to throw-away our partial "bin" of data
+                odometers_need_reset = False
+            else:
+                transfer_odometers(READINGS)
+            last_odometer_transfer = time.time()
+            redraw = True
+    
+        if redraw:
+            SCREEN.fill(BLACK)
+            get_inverter_values_and_update_odometers()
+            draw_buttons()
+            if BUTTONS["mode"]["text"] == "live":
+                draw_instants(READINGS)
+                draw_weather(THREE_HOURLY_WEATHER)
+                draw_readings(READINGS_YESTERDAY, READINGS)
+                draw_predictions()
+                draw_time_and_cursor()
+            else:
+                draw_historic()
+            pygame.display.flip()
+            redraw = False
+    
+        time.sleep(0.05)
+    
+if __name__ == "__main__":
+    main()
