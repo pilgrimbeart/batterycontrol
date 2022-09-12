@@ -29,7 +29,7 @@ WEATHER_UPDATE_INTERVAL_S = 60 * 30
 SOFAR_UPDATE_INTERVAL_S = 1             # How often we read and display fast-changing numbers like power
 READINGS_INTERVAL_S = 60*5              # How often we transfer accumulated, slow-changing numbers like kWh
 READINGS_PER_DAY = int((60*60*24)/READINGS_INTERVAL_S)
-BINS_PER_DAY = 8
+BINS_PER_DAY = 8    # For forecasting and ML etc.
 READINGS_PER_BIN = READINGS_PER_DAY / BINS_PER_DAY
 
 MAX_HOUSE_KWH_PER_READING = float(3.5) * 24 / READINGS_PER_DAY   # Sets the top of the chart range
@@ -431,7 +431,11 @@ def draw_readings(readings_yesterday, readings):
         draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*3, READINGS_PER_DAY, "battery %", 100, BATTERY_COLOUR)
         draw_seg(readings, i, wid/3, STRIPCHART_HEIGHT*4, READINGS_PER_DAY, "import", MAX_IMPORT_KWH_PER_READING, IMPORT_COLOUR)
 
-def draw_predictions():
+    # Draw battery min % on yesterday and today
+    y_minbatt = STRIPCHART_HEIGHT*4 - STRIPCHART_HEIGHT * config.setting("min_battery_%") / 100.0
+    pygame.draw.line(SCREEN, BATTERY_COLOUR, (LEFT_MARGIN, y_minbatt), (LEFT_MARGIN + int((SCREEN_WIDTH-LEFT_MARGIN) * 2.0/3), y_minbatt))
+
+def draw_predictions(readings):
     def draw_prediction(stripchart_number, bins, limit):
         wid = SCREEN_WIDTH - LEFT_MARGIN
         x_scalar = (wid / 3) / float(BINS_PER_DAY)
@@ -440,14 +444,15 @@ def draw_predictions():
         last_x = None
         last_y = None
         for bin in range(BINS_PER_DAY):
-            x = int(LEFT_MARGIN + (pane * BINS_PER_DAY + bin) * x_scalar)
-            y = int(((stripchart_number+1) * STRIPCHART_HEIGHT) - bins[bin] * y_scalar)
-            if last_x is not None:
-                pygame.draw.line(SCREEN, PREDICTION_COLOUR, (last_x, last_y), (x, y))   # Vertical step from last reading
-            new_x = int(x + x_scalar)
-            pygame.draw.line(SCREEN, PREDICTION_COLOUR, (x,y), (new_x,y))          # Horizontal line for this reading
-            last_x = new_x
-            last_y = y
+            if bins[bin] is not None: 
+                x = int(LEFT_MARGIN + (pane * BINS_PER_DAY + bin) * x_scalar)
+                y = int(((stripchart_number+1) * STRIPCHART_HEIGHT) - bins[bin] * y_scalar)
+                if last_x is not None:
+                    pygame.draw.line(SCREEN, PREDICTION_COLOUR, (last_x, last_y), (x, y))   # Vertical step from last reading
+                new_x = int(x + x_scalar)
+                pygame.draw.line(SCREEN, PREDICTION_COLOUR, (x,y), (new_x,y))          # Horizontal line for this reading
+                last_x = new_x
+                last_y = y
 
     if ml.PV_PREDICTION is not None:
         draw_prediction(1, ml.PV_PREDICTION, MAX_PV_KWH_PER_READING)
@@ -455,6 +460,31 @@ def draw_predictions():
     if ml.CONSUMPTION_ON_PEAK_PREDICTION is not None:
         draw_prediction(2, ml.CONSUMPTION_ON_PEAK_PREDICTION, MAX_HOUSE_KWH_PER_READING)
 
+    battery_prediction = predict_battery(readings)
+    if battery_prediction is not None:
+        draw_prediction(3, battery_prediction, 100.0 / READINGS_PER_BIN)
+
+def predict_battery(readings):
+    if (ml.PV_PREDICTION is None) or (ml.CONSUMPTION_ON_PEAK_PREDICTION is None): 
+        return None
+
+    bins = [None] * BINS_PER_DAY
+
+    batt_percent = None
+    start_bin = None
+    for reading in range(READINGS_PER_DAY): # Find last known value
+        if "battery %" in readings[reading]:
+            batt_percent = readings[reading]["battery %"]
+            start_bin = int(reading / READINGS_PER_BIN)
+
+    batt_kWh = config.setting("battery_kWh")
+    if start_bin is not None:
+        for bin in range(start_bin, BINS_PER_DAY):
+            bins[bin] = batt_percent
+            energy_change = ml.PV_PREDICTION[bin] - ml.CONSUMPTION_ON_PEAK_PREDICTION[bin]
+            batt_percent += (energy_change / batt_kWh) * 100
+
+    return bins
 
 def get_weather_forecast_and_predict_PV(three_hourly_weather):
     raw = weather.get_weather()
@@ -585,7 +615,7 @@ def main():
                 draw_instants(READINGS)
                 draw_weather(THREE_HOURLY_WEATHER)
                 draw_readings(READINGS_YESTERDAY, READINGS)
-                draw_predictions()
+                draw_predictions(READINGS)
                 draw_time_and_cursor()
             else:
                 draw_historic()
