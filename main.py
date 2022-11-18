@@ -51,7 +51,7 @@ BLUE = 0,0,255
 DARK_BLUE = 64,64,255
 LIGHT_BLUE = 192,192,255
 GREEN = 0, 255, 0
-YELLOW = 255,255,0
+YELLOW = 220,220,0  # Slightly less bright, to increase contrast with white
 RED = 255,0,0
 LIGHT_RED = 255, 128, 128
 MAGENTA = 255, 0, 255
@@ -278,7 +278,7 @@ def draw_instants(readings):
 
     y += 5 
 
-    draw_text("IMPORT COSTS", x, y, WHITE, BACKGROUND, font_size=10)
+    draw_text("IMPORT SPEND", x, y, WHITE, BACKGROUND, font_size=10)
     y += 10
     if "import cost at expensive" in totals:
         draw_text("£%0.2f peak" % totals["import cost at expensive"], x, y, WHITE, BACKGROUND, font_size=10)
@@ -310,10 +310,10 @@ def battery_stats(readings):
 
     return { "max_batt_cheap" : max_batt_cheap, "min_batt_cheap" : min_batt_cheap, "max_batt_peak" : max_batt_peak, "min_batt_peak" : min_batt_peak } 
 
-def draw_stack(x, width, vals, cols):
+def draw_stack(x, width, vals, cols, y_scale):
     y = SCREEN_HEIGHT
     for value, colour in zip(vals,cols):
-        height = value * 20
+        height = value * y_scale
         pygame.draw.rect(SCREEN, colour, Rect(int(x), int(y-height), int(width), int(height)+1))    # Add 1 to height to ensure no gap between bars
         y -= height
 
@@ -335,6 +335,14 @@ def sum_by_key(list_of_sets, the_key):
     return total
 
 def draw_historic():
+    y_scale = 20
+
+    # Draw Y axis (cost)
+    for n in range(int(SCREEN_HEIGHT/y_scale)):
+        y = SCREEN_HEIGHT - n*y_scale
+        pygame.draw.line(SCREEN, DARK_GREY, (0,y), (SCREEN_WIDTH,y))
+
+    # Draw last 30 days
     DAYS = 30
     scalar = (SCREEN_WIDTH - LEFT_MARGIN) / DAYS
     for d in range(DAYS):
@@ -347,7 +355,8 @@ def draw_historic():
             values = values[0:4] + [values[4] * config.setting("unit_cost_expensive")]    # House PV kWh -> £
             draw_stack(LEFT_MARGIN + d*scalar, scalar,
                 values,
-                [GREY, LIGHT_GREY, BLUE, WHITE, YELLOW])
+                [GREY, LIGHT_GREY, BLUE, WHITE, YELLOW],
+                y_scale)
 
         if filer.file_exists("weather", date):
             weather = filer.read_file("weather", date)["raw"]
@@ -610,7 +619,6 @@ def main():
         if redraw:
             SCREEN.fill(BLACK)
             get_inverter_values_and_update_odometers()
-            draw_buttons()
             if BUTTONS["mode"]["text"] == "live":
                 draw_instants(READINGS)
                 draw_weather(THREE_HOURLY_WEATHER)
@@ -619,6 +627,7 @@ def main():
                 draw_time_and_cursor()
             else:
                 draw_historic()
+            draw_buttons()
             pygame.display.flip()
             redraw = False
     
