@@ -168,6 +168,11 @@ def learn_and_predict(wdata, is_raw=True):
     PV_PREDICTION = CLF.predict(wdata)
     predict_battery()
 
+def predict_only(raw_wdata):
+    wdata = relevant_weather_fields(raw_wdata)
+    prediction = CLF.predict(wdata)
+    return prediction
+
 if __name__ == "__main__":
     # Predict today's weather forecast
     # todays_date = utcstuff.todays_date_iso8601()

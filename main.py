@@ -17,7 +17,7 @@
 # So either we could use instantaneous Power readings instead of Energy odometers (still not completely accurate, as it means we're point-sampling)
 # Or we could integrate over longer periods.
 
-import sys, os, pygame, time, datetime
+import sys, os, pygame, time, datetime, glob
 import urllib.request, json, math
 import traceback
 from pygame.locals import *
@@ -147,6 +147,7 @@ def test_hit(pos):
     draw_buttons()
 
 def mode_button_click_handler(b):
+    print("mode_button_click_handler")
     if b["text"] == "live":
         b["text"] = "month"
     else:
@@ -504,6 +505,33 @@ def get_weather_forecast_and_predict_PV(three_hourly_weather):
 
     ml.learn_and_predict(three_hourly_weather[1])
 
+def predict_all_days():
+    # "prediction vs. reality" back-casting
+    files = sorted(list(glob.glob('../bc_data/weather*.json')))
+    print("Back-casted PV predictions on",len(files),"weather files")
+    for f in files:
+        basename = os.path.basename(f)
+        basename = basename.split("_")[1]
+        basename = basename.split(".")[0]
+        print(basename+" ",end="")
+        data = filer.read_file("weather", basename)
+        if "raw" not in data:  
+            print("Data missing, skipping")
+            continue
+        data = data["raw"]
+        if len(data) < 1:
+            print("Data too short, skipping")
+            continue
+        ok = True
+        for d in data:
+            if "W" not in d:
+                ok = False
+        if not ok:
+            print("Missing W data, skipping")
+            continue
+        prediction = ml.predict_only(data).sum()
+        print(prediction)
+
 def status_screen(s):
     print(s)
     SCREEN.fill(BLACK)
@@ -584,6 +612,8 @@ def main():
     last_odometer_transfer = 0
     odometers_need_reset = True
     
+    # predict_all_days() # One-off to emit back-casting data
+
     while(1):
         if current_utc_date != utcstuff.todays_date_iso8601():
             current_utc_date = utcstuff.todays_date_iso8601()
@@ -600,6 +630,7 @@ def main():
             if event.type == pygame.QUIT:
                 sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
+                print("MOUSEBUTTONDOWN")
                 test_hit(pygame.mouse.get_pos())
                 redraw = True
     
