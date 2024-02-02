@@ -1,5 +1,6 @@
 # A standalone experiment in optimising battery import/export/self-use against day-ahead market prices
 # Here, "half hour" time is taken to be the absolute epoch-time divided by half an hour. So half_hour=0 is the half-hour at the start of 1970, half_hour=1 is the following half hour, and so on.
+# TODO: Add inverter inefficiency. Debug behaviour with very small inverter and very large battery (leads to negative savings, why?)
 
 import os
 import json
@@ -7,8 +8,14 @@ import random
 import math
 from datetime import datetime
 import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import griddata
+from scipy.stats import binned_statistic_2d
 import cv2
 import glob
+from astropy.time import Time
+from astropy.coordinates import get_sun, EarthLocation, AltAz
+import astropy.units as astro_units
 
 earliest_date = "2023-01-01T00:00:00"   # This must be the start of a day
 latest_date = "2023-12-31T23:59:59"
@@ -20,6 +27,9 @@ HALF_AN_HOUR_S = 60*30
 
 BATTERY_KW = 7       # Power of inverter
 BATTERY_KWH = 12     # Capacity of battery
+
+LATITUDE =  52.13674 # Pilgrim's home at Harston, Cambridge UK
+LONGITUDE = 0.07688
 
 OUTPUT_PLOTS = True
 BATT_KWH_PER_HH = BATTERY_KW / 2    # How much charge can move in a HH
@@ -44,7 +54,10 @@ def get_readings():
     total_batt_charge = 0   # Nothing to do with the primary function of this function, just put this here to do some battery usage analysis
     total_batt_discharge = 0
 
-    for filename in os.listdir(readings_dir):
+
+    azi_elev_pv = []
+    for filename in os.listdir(readings_dir): 
+        print(filename)
         f = os.path.join(readings_dir,filename)
         if not os.path.isfile(f):
             continue
@@ -57,6 +70,13 @@ def get_readings():
         for r in contents["readings"]:
             if not "end" in r:
                 continue
+            #if filename.startswith("readings_2023"):
+            #    if "pv" in r:
+            #        pv = r["pv"]
+            #        if pv > 0:
+            #            azi,elev = epoch_to_azi_elev(r["end"])  # Nothing to do with purpose of this function, just grabbing some solar data
+            #            if elev >= 0:
+            #                azi_elev_pv.append((azi,elev,pv))
             hh = int(r["end"] / HALF_AN_HOUR_S) 
             if (hh >= earliest_hh) and (hh < latest_hh):
                 if kWh_used_by_hh[hh] is None:
@@ -321,10 +341,50 @@ def select_48_hhs(start_hh, the_dict):  # Given a dict indexed by half-hour, fin
             arr.append(the_dict[start_hh+i])
     return arr
 
+def epoch_to_azi_elev(epoch):
+    location = EarthLocation(lat=LATITUDE*astro_units.deg, lon=LONGITUDE*astro_units.deg)
+    time = Time(epoch, format='unix')
+    altaz_frame = AltAz(obstime=time, location=location)
+    sun_position = get_sun(time).transform_to(altaz_frame)
+
+    return float(sun_position.az.deg), float(sun_position.alt.deg)
+
+def plot_pv(azi_elev_pv, filename):
+    print("plot_pv",filename)
+    azi = np.array([t[0] for t in azi_elev_pv])
+    elev = np.array([t[1] for t in azi_elev_pv])
+    pv = np.array([t[2] for t in azi_elev_pv])
+
+    xi = np.linspace(azi.min(), azi.max(), 512)
+    yi = np.linspace(elev.min(), elev.max(), 512)
+
+    statistic, x_edge, y_edge, _ = binned_statistic_2d(azi, elev, pv, statistic='mean', bins=[xi, yi])
+    plt.figure(figsize=(8, 6), facecolor='black')
+    plt.pcolormesh(x_edge, y_edge, statistic.T, shading='auto', cmap='Greys_r')  # Transpose the statistic array for correct orientation
+
+
+    #xi, yi = np.meshgrid(xi, yi)
+    #zi = griddata((azi, elev), pv, (xi,yi), method='cubic')
+    #plt.figure(figsize=(8,6), facecolor='black')
+    ax = plt.gca()
+    ax.set_facecolor('black')
+    ax.xaxis.label.set_color('white')
+    ax.yaxis.label.set_color('white')
+    ax.title.set_color('white')
+    ax.tick_params(axis='x', colors='white')
+    ax.tick_params(axis='y', colors='white')
+    #plt.imshow(zi, extent=(azi.min(), azi.max(), elev.min(), elev.max()), origin='lower', cmap='Greys_r')
+    plt.colorbar(label='PV generation')
+    plt.xlabel('Azi')
+    plt.ylabel('Elev')
+    plt.title('PV generation by azimuth & elevation')
+    plt.savefig(plots_dir + "azi_elev_pv_"+filename, dpi=300)
+
 if __name__ == "__main__":
     print("Using date range",earliest_date,"to",latest_date)
     print("Which is HH",earliest_hh,"to",latest_hh)
     kWh_used_by_hh = get_readings()
+    # plot_pv(azi_elev_pv, "azi_elev_pv")
     daily_kWh_profile = daily_profile(kWh_used_by_hh)
     print(daily_kWh_profile)
     price_by_hh = get_prices()
@@ -337,7 +397,7 @@ if __name__ == "__main__":
         actual_kWh = select_48_hhs(hh, kWh_used_by_hh)
         day = int((hh-earliest_hh)/48)
         cost, savings, batt_kWh = plan_do_one_thing(day,batt_kWh, daily_kWh_profile, actual_kWh, prices)
-        # print("Day",(hh-earliest_hh)/48,"cost",cost,"savings",savings,"batt_kWh",batt_kWh)
+        print("Day",(hh-earliest_hh)/48,"cost",cost,"savings",savings,"batt_kWh",batt_kWh)
         total_cost += cost
         total_savings += savings
 
