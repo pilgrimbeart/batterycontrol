@@ -131,7 +131,7 @@ def learn_consumption():
 
 def learn_weather():
     global CLF
-    CLF = MLPRegressor(random_state=1, max_iter=1000000, hidden_layer_sizes = (100,100,100))
+    CLF = MLPRegressor(random_state=1, max_iter=10000, hidden_layer_sizes = (100,100,100))
     t1 = time.time()
     CLF.fit(WEATHER_FORECAST, READINGS_PV)
     t2 = time.time()

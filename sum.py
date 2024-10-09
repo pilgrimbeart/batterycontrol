@@ -1,5 +1,6 @@
 import json
 import glob
+import time
 
 COUNTS = {}
 SUMS = {}
@@ -53,9 +54,12 @@ if __name__ == "__main__":
     for (k,v) in SUMS.items():
         print(k,v,"(",COUNTS[k],")","daily av:", v/len(files))
 
-    # print("filename, ", ", ".join(SUMS.keys()))
-    # for name in files:
-    #    do_dump(name)
+    # Dump everything out
+    print("filename, ", ", ".join(SUMS.keys()))
+    time.sleep(1)
+    for name in files:
+       do_dump(name)
+
     print("Daily PV sums")
     for name in files:
         basename = name.split("_")[2]
