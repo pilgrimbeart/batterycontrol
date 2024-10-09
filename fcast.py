@@ -70,13 +70,19 @@ def get_readings():
         for r in contents["readings"]:
             if not "end" in r:
                 continue
-            #if filename.startswith("readings_2023"):
-            #    if "pv" in r:
-            #        pv = r["pv"]
-            #        if pv > 0:
-            #            azi,elev = epoch_to_azi_elev(r["end"])  # Nothing to do with purpose of this function, just grabbing some solar data
-            #            if elev >= 0:
-            #                azi_elev_pv.append((azi,elev,pv))
+            if filename.startswith("readings_2023"):
+                #if "pv" in r:
+                #    pv = r["pv"]
+                #    if pv > 0:
+                if ("batt charge" in r) and ("batt discharge" in r):
+                    pv = r["batt charge"] - r["batt discharge"]
+                    azi,elev = epoch_to_azi_elev(r["end"])  # Nothing to do with purpose of this function, just grabbing some solar data
+                    if pv > 0:
+                        pv = 1.0
+                    if pv < 0:
+                        pv = -1.0
+                    azi_elev_pv.append((azi,elev,pv))
+                    # print("%3f %3f %3.1f" % (azi,elev,pv))
             hh = int(r["end"] / HALF_AN_HOUR_S) 
             if (hh >= earliest_hh) and (hh < latest_hh):
                 if kWh_used_by_hh[hh] is None:
@@ -100,7 +106,7 @@ def get_readings():
     print(missing_hhs,"missing half hours of data")
 
     print("Total batt usage: Charge",total_batt_charge,"Discharge",total_batt_discharge)
-    return kWh_used_by_hh
+    return kWh_used_by_hh, azi_elev_pv
 
 def daily_profile(kWh_hhs):
     # Given HH readings over some time range, find the average consumption per HH
@@ -360,7 +366,7 @@ def plot_pv(azi_elev_pv, filename):
 
     statistic, x_edge, y_edge, _ = binned_statistic_2d(azi, elev, pv, statistic='mean', bins=[xi, yi])
     plt.figure(figsize=(8, 6), facecolor='black')
-    plt.pcolormesh(x_edge, y_edge, statistic.T, shading='auto', cmap='Greys_r')  # Transpose the statistic array for correct orientation
+    plt.pcolormesh(x_edge, y_edge, statistic.T, shading='auto', cmap='coolwarm_r')  # Transpose the statistic array for correct orientation
 
 
     #xi, yi = np.meshgrid(xi, yi)
@@ -374,17 +380,17 @@ def plot_pv(azi_elev_pv, filename):
     ax.tick_params(axis='x', colors='white')
     ax.tick_params(axis='y', colors='white')
     #plt.imshow(zi, extent=(azi.min(), azi.max(), elev.min(), elev.max()), origin='lower', cmap='Greys_r')
-    plt.colorbar(label='PV generation')
+    plt.colorbar(label='Battery charge/discharge')
     plt.xlabel('Azi')
     plt.ylabel('Elev')
-    plt.title('PV generation by azimuth & elevation')
+    plt.title('Battery import/export by azimuth & elevation')
     plt.savefig(plots_dir + "azi_elev_pv_"+filename, dpi=300)
 
 if __name__ == "__main__":
     print("Using date range",earliest_date,"to",latest_date)
     print("Which is HH",earliest_hh,"to",latest_hh)
-    kWh_used_by_hh = get_readings()
-    # plot_pv(azi_elev_pv, "azi_elev_pv")
+    kWh_used_by_hh, azi_elev_pv = get_readings()
+    plot_pv(azi_elev_pv, "azi_elev_pv")
     daily_kWh_profile = daily_profile(kWh_used_by_hh)
     print(daily_kWh_profile)
     price_by_hh = get_prices()
